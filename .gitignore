@@ -1,0 +1,17 @@
+# Runtime files (generated on Exchange server)
+state.json
+threads.json
+users_credentials.csv
+generation_report.csv
+generation_*.log
+*.log
+
+# Attachments (downloaded/generated at runtime)
+Attachments/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
