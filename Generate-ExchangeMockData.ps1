@@ -733,7 +733,7 @@ if ($StartPhase -le 1) {
         # Pick name — use shuffled arrays for uniqueness, wrap around if > array size
         $firstName = $shuffledFirst[(($i - 1) % $shuffledFirst.Count)]
         $lastName = $shuffledLast[(($i - 1) % $shuffledLast.Count)]
-        $displayName = "$firstName $lastName"
+        $displayName = "MockOrg $lastName $firstName"
 
         # Pick random profile attributes
         $dept = $Departments | Get-Random
@@ -782,9 +782,8 @@ if ($StartPhase -le 1) {
         $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
 
         try {
-            # Use alias as -Name (AD CN) to guarantee uniqueness;
-            # international name goes into -DisplayName only
-            New-Mailbox -Name $alias `
+            # Name (AD CN) = DisplayName = "MockOrg LastName FirstName"
+            New-Mailbox -Name $displayName `
                         -Alias $alias `
                         -UserPrincipalName $upn `
                         -SamAccountName $alias `
@@ -1637,9 +1636,10 @@ public class TrustAllC {
             # Build serialized contact data string (avoid passing complex objects to runspace)
             $contactEntries = @()
             foreach ($cu in $contactUsers) {
-                $fn = ($cu.DisplayName -split ' ')[0]
-                $ln = ($cu.DisplayName -split ' ',2)[1]
-                if (-not $ln) { $ln = "User" }
+                # DisplayName format: "MockOrg LastName FirstName"
+                $nameParts = $cu.DisplayName -split ' '
+                $fn = if ($cu.FirstName) { $cu.FirstName } elseif ($nameParts.Count -ge 3) { $nameParts[2] } else { $nameParts[-1] }
+                $ln = if ($cu.LastName) { $cu.LastName } elseif ($nameParts.Count -ge 2) { $nameParts[1] } else { "User" }
                 $comp = if ($cu.Company) { $cu.Company } else { "Global Solutions Ltd" }
                 $phone = if ($cu.Phone) { $cu.Phone } else { "+1-555-$(Get-Random -Minimum 1000 -Maximum 9999)" }
                 $title = if ($cu.Title) { $cu.Title } else { "Specialist" }
