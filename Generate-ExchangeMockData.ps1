@@ -142,39 +142,152 @@ function New-RandomPassword {
 #####################################################################
 
 $FirstNames = @(
-    "James","Maria","Wei","Olga","Ahmed","Yuki","Hans","Priya","Carlos","Fatima",
-    "John","Anna","Hiroshi","Elena","Mohammed","Sakura","Klaus","Deepa","Miguel","Aisha",
-    "Robert","Sofia","Chen","Natasha","Ali","Keiko","Franz","Ananya","Pedro","Layla",
-    "David","Isabella","Jun","Svetlana","Omar","Hana","Wolfgang","Kavya","Andres","Noor",
-    "Michael","Lucia","Takeshi","Irina","Hassan","Rin","Dieter","Meera","Juan","Zara",
-    "William","Camila","Liang","Tatiana","Ibrahim","Yui","Markus","Riya","Diego","Amira",
-    "Thomas","Valentina","Sato","Anastasia","Yusuf","Aoi","Stefan","Nisha","Luis","Hala",
-    "Daniel","Gabriela","Kenji","Marina","Khalid","Mio","Tobias","Sita","Alejandro","Dina",
-    "Richard","Paula","Ryu","Vera","Tariq","Emi","Lukas","Pooja","Fernando","Sara",
-    "Joseph","Andrea","Kaito","Darya","Faisal","Nana","Felix","Aditi","Mateo","Yasmin",
-    "Andrew","Laura","Shota","Alina","Mansoor","Saki","Jens","Tara","Rafael","Leila",
-    "Alex","Carmen","Daichi","Polina","Rashid","Miyu","Peter","Divya","Pablo","Amina",
-    "Ryan","Martina","Haruto","Kristina","Samir","Yuna","Uwe","Arya","Emilio","Rana",
-    "Nathan","Jessica","Sota","Yulia","Hamza","Akari","Bernd","Neha","Sergio","Huda",
-    "Brian","Nicole","Ren","Masha","Nabil","Koharu","Ralf","Isha","Victor","Dalia"
+    # English/American
+    "James","John","Robert","David","Michael","William","Thomas","Daniel","Richard","Joseph",
+    "Andrew","Alex","Ryan","Nathan","Brian","Kevin","Eric","Scott","Patrick","Timothy",
+    "Mary","Jennifer","Linda","Susan","Jessica","Sarah","Karen","Lisa","Nancy","Betty",
+    # Russian
+    "Dmitry","Sergei","Alexei","Nikolai","Vladimir","Andrei","Mikhail","Pavel","Igor","Oleg",
+    "Olga","Elena","Natasha","Svetlana","Irina","Tatiana","Anastasia","Yulia","Marina","Vera",
+    # Spanish/Portuguese
+    "Carlos","Miguel","Diego","Alejandro","Fernando","Rafael","Sergio","Pablo","Emilio","Mateo",
+    "Maria","Sofia","Isabella","Camila","Valentina","Gabriela","Paula","Laura","Carmen","Andrea",
+    # French
+    "Pierre","Jean","Louis","Antoine","Nicolas","Philippe","Etienne","Francois","Henri","Remy",
+    "Colette","Juliette","Amelie","Margaux","Celine","Claire","Eloise","Isabelle","Simone","Adele",
+    # German
+    "Hans","Klaus","Franz","Wolfgang","Dieter","Markus","Stefan","Tobias","Lukas","Felix",
+    "Helga","Greta","Ingrid","Heidi","Ursula","Anke","Sabine","Monika","Petra","Martina",
+    # Chinese
+    "Wei","Chen","Jun","Liang","Hao","Jian","Ming","Tao","Xin","Feng",
+    "Mei","Ling","Xia","Yan","Hui","Na","Jing","Fang","Yun","Li",
+    # Japanese
+    "Hiroshi","Yuki","Takeshi","Kenji","Ryu","Kaito","Shota","Daichi","Haruto","Ren",
+    "Sakura","Keiko","Hana","Rin","Yui","Aoi","Mio","Emi","Nana","Akari",
+    # Arabic
+    "Ahmed","Mohammed","Ali","Omar","Hassan","Ibrahim","Yusuf","Khalid","Tariq","Faisal",
+    "Fatima","Aisha","Layla","Noor","Zara","Amira","Hala","Dina","Sara","Leila",
+    # Indian
+    "Priya","Deepa","Ananya","Kavya","Meera","Riya","Nisha","Sita","Pooja","Aditi",
+    "Arjun","Vikram","Ravi","Suresh","Anil","Rahul","Amit","Sanjay","Kiran","Dev",
+    # Korean
+    "Minho","Jisoo","Hyun","Seojin","Taeyang","Dohyun","Jiho","Yunho","Sungho","Woojin",
+    "Minji","Yuna","Soyeon","Haeun","Chaewon","Jiwoo","Dahye","Eunbi","Nayoung","Subin",
+    # Italian
+    "Marco","Luca","Giuseppe","Alessandro","Matteo","Lorenzo","Davide","Riccardo","Giorgio","Fabio",
+    "Giulia","Francesca","Chiara","Alessia","Valentina","Elisa","Silvia","Roberta","Monica","Paola",
+    # Nordic/Scandinavian
+    "Erik","Lars","Magnus","Sven","Olaf","Bjorn","Nils","Torsten","Leif","Ragnar",
+    "Astrid","Ingrid","Sigrid","Frida","Elsa","Kristin","Birgit","Solveig","Liv","Maja"
 )
 
 $LastNames = @(
-    "Smith","Garcia","Wang","Ivanov","Al-Said","Tanaka","Mueller","Sharma","Silva","Hassan",
-    "Johnson","Martinez","Li","Petrov","Ahmed","Yamamoto","Schmidt","Patel","Santos","Ibrahim",
-    "Williams","Lopez","Zhang","Sokolov","Khalil","Suzuki","Schneider","Gupta","Oliveira","Ali",
-    "Brown","Hernandez","Liu","Kuznetsov","Omar","Takahashi","Fischer","Singh","Pereira","Mahmoud",
-    "Jones","Gonzalez","Chen","Popov","Malik","Watanabe","Weber","Kumar","Costa","Yusuf",
-    "Davis","Rodriguez","Yang","Volkov","Rahman","Ito","Meyer","Reddy","Ferreira","Mustafa",
-    "Miller","Perez","Huang","Morozov","Hasan","Nakamura","Wagner","Joshi","Almeida","Rashid",
-    "Wilson","Sanchez","Wu","Novikov","Karim","Kobayashi","Becker","Verma","Souza","Saleh",
-    "Moore","Ramirez","Zhou","Kozlov","Hussain","Kato","Schulz","Rao","Lima","Hamid",
-    "Taylor","Torres","Xu","Lebedev","Farooq","Yoshida","Hoffmann","Nair","Rocha","Osman",
-    "Anderson","Flores","Sun","Sorokin","Akhtar","Yamada","Bauer","Pillai","Ribeiro","Abbas",
-    "White","Rivera","Ma","Pavlov","Siddiqui","Sasaki","Koch","Iyer","Martins","Nasser",
-    "Harris","Gomez","Zhu","Semenov","Qureshi","Yamaguchi","Richter","Shah","Barbosa","Farid",
-    "Clark","Diaz","Gao","Egorov","Chaudhry","Matsumoto","Klein","Mishra","Araujo","Kareem",
-    "Lewis","Cruz","Lin","Fedorov","Raza","Inoue","Kraus","Tiwari","Cardoso","Saeed"
+    # English
+    "Smith","Johnson","Williams","Brown","Jones","Davis","Miller","Wilson","Moore","Taylor",
+    "Anderson","White","Harris","Clark","Lewis","Walker","Hall","Young","Allen","King",
+    # Russian
+    "Ivanov","Petrov","Sokolov","Kuznetsov","Popov","Volkov","Morozov","Novikov","Kozlov","Lebedev",
+    "Sorokin","Pavlov","Semenov","Egorov","Fedorov","Orlov","Belov","Zakharov","Voronov","Gusev",
+    # Spanish/Portuguese
+    "Garcia","Martinez","Lopez","Hernandez","Gonzalez","Rodriguez","Perez","Sanchez","Ramirez","Torres",
+    "Silva","Santos","Oliveira","Pereira","Costa","Ferreira","Almeida","Souza","Lima","Ribeiro",
+    # French
+    "Martin","Bernard","Dubois","Moreau","Laurent","Simon","Michel","Leroy","Roux","Fontaine",
+    # German
+    "Mueller","Schmidt","Schneider","Fischer","Weber","Meyer","Wagner","Becker","Schulz","Hoffmann",
+    "Bauer","Koch","Richter","Klein","Kraus","Werner","Lehmann","Braun","Zimmermann","Hartmann",
+    # Chinese
+    "Wang","Li","Zhang","Liu","Chen","Yang","Huang","Wu","Zhou","Xu",
+    "Sun","Ma","Zhu","Gao","Lin","Zhao","Deng","Feng","Luo","Tang",
+    # Japanese
+    "Tanaka","Yamamoto","Suzuki","Takahashi","Watanabe","Ito","Nakamura","Kobayashi","Kato","Yoshida",
+    "Yamada","Sasaki","Yamaguchi","Matsumoto","Inoue","Kimura","Shimizu","Hayashi","Mori","Saito",
+    # Arabic
+    "Al-Said","Hassan","Ibrahim","Ali","Mahmoud","Yusuf","Mustafa","Rashid","Saleh","Hamid",
+    "Osman","Abbas","Nasser","Farid","Kareem","Saeed","Khalil","Bakr","Mansour","Darwish",
+    # Indian
+    "Sharma","Patel","Gupta","Singh","Kumar","Reddy","Joshi","Verma","Nair","Rao",
+    "Shah","Pillai","Iyer","Mishra","Tiwari","Bhat","Desai","Mehta","Chopra","Kapoor",
+    # Korean
+    "Kim","Lee","Park","Choi","Jung","Kang","Yoon","Song","Lim","Han",
+    # Italian
+    "Rossi","Russo","Ferrari","Esposito","Bianchi","Romano","Colombo","Ricci","Marino","Greco",
+    # Nordic
+    "Johansson","Lindberg","Eriksson","Nilsson","Larsson","Olsson","Andersen","Dahl","Bakken","Berg"
+)
+
+#####################################################################
+# USER PROFILE DATA (randomized per user)
+#####################################################################
+
+$Departments = @(
+    "IT","Finance","Human Resources","Marketing","Sales","Engineering",
+    "Operations","Legal","Customer Support","Research & Development",
+    "Procurement","Quality Assurance","Business Development","Administration",
+    "Product Management","Data Analytics","Security","Compliance",
+    "Logistics","Communications","Training","Facilities"
+)
+
+$JobTitles = @(
+    "Analyst","Senior Analyst","Manager","Senior Manager","Director",
+    "Vice President","Team Lead","Specialist","Coordinator","Administrator",
+    "Engineer","Senior Engineer","Principal Engineer","Architect","Consultant",
+    "Senior Consultant","Associate","Executive","Officer","Supervisor",
+    "Developer","Project Manager","Program Manager","Account Manager","Advisor",
+    "Technician","Assistant","Planner","Strategist","Controller"
+)
+
+$Offices = @(
+    "HQ-101","HQ-102","HQ-201","HQ-202","HQ-301","HQ-302",
+    "Building A, Room 101","Building A, Room 205","Building A, Room 310",
+    "Building B, Room 102","Building B, Room 204","Building B, Room 306",
+    "Building C, Room 103","Building C, Room 201","Building C, Room 305",
+    "Tower 1, Floor 5","Tower 1, Floor 10","Tower 1, Floor 15",
+    "Tower 2, Floor 3","Tower 2, Floor 8","Tower 2, Floor 12",
+    "Remote","Remote","Remote","Remote"
+)
+
+$Cities = @(
+    "New York","London","Moscow","Tokyo","Berlin","Paris","Dubai",
+    "Mumbai","Shanghai","Sydney","Toronto","Singapore","Seoul",
+    "Rome","Madrid","Zurich","Amsterdam","Stockholm","Vienna","Prague",
+    "Istanbul","Bangkok","Sao Paulo","Mexico City","Lagos","Cairo"
+)
+
+$Countries = @(
+    "US","GB","RU","JP","DE","FR","AE","IN","CN","AU",
+    "CA","SG","KR","IT","ES","CH","NL","SE","AT","CZ",
+    "TR","TH","BR","MX","NG","EG"
+)
+
+$Companies = @(
+    "Global Solutions Ltd","TechVista Corp","DataBridge Inc","Nexus Innovations",
+    "Meridian Systems","Apex Consulting","Quantum Networks","Horizon Group",
+    "Pinnacle Services","CoreTech International","Vector Dynamics","Summit Partners",
+    "Atlas Enterprises","Zenith Holdings","Vertex Analytics","Catalyst Engineering",
+    "Streamline Corp","Fusion Technologies","Vanguard Solutions","Prism Consulting"
+)
+
+$StreetAddresses = @(
+    "100 Main Street","200 Broadway","42 Park Avenue","15 Technology Drive",
+    "350 Enterprise Blvd","77 Innovation Way","500 Commerce Street",
+    "1200 Corporate Center","88 Business Park Road","250 Financial Drive",
+    "10 Market Square","300 Industrial Parkway","60 Riverside Drive",
+    "175 Liberty Avenue","425 Global Way","90 Silicon Road"
+)
+
+$PostalCodes = @(
+    "10001","SW1A 1AA","101000","100-0001","10115","75001","00000",
+    "400001","200000","2000","M5V 2T6","018956","06164","00100",
+    "28001","8001","1012","111 21","1010","110 00"
+)
+
+$Descriptions = @(
+    "Employee — Mock user for testing and migration validation",
+    "Staff member — Generated for Exchange mock data project",
+    "Test account — Part of bulk user generation for lab environment",
+    "Mock user — Created for mailbox migration testing purposes",
+    "Lab account — Used for Exchange data generation testing"
 )
 
 #####################################################################
@@ -525,30 +638,60 @@ if ($StartPhase -le 1) {
     $Created = 0
     $Skipped = 0
 
+    # Pre-shuffle names for unique combinations (seed with user count for reproducibility)
+    $shuffledFirst = $FirstNames | Sort-Object { Get-Random }
+    $shuffledLast = $LastNames | Sort-Object { Get-Random }
+
     for ($i = 1; $i -le $UserCount; $i++) {
         $num = $i.ToString("D3")
         $alias = "$UserPrefix$num"
         $upn = "$alias@$DomainFQDN"
 
-        # Pick random international name
-        $firstName = $FirstNames[(($i - 1) % $FirstNames.Count)]
-        $lastName = $LastNames[(($i - 1) % $LastNames.Count)]
+        # Pick name — use shuffled arrays for uniqueness, wrap around if > array size
+        $firstName = $shuffledFirst[(($i - 1) % $shuffledFirst.Count)]
+        $lastName = $shuffledLast[(($i - 1) % $shuffledLast.Count)]
         $displayName = "$firstName $lastName"
+
+        # Pick random profile attributes
+        $dept = $Departments | Get-Random
+        $title = $JobTitles | Get-Random
+        $office = $Offices | Get-Random
+        $cityIdx = Get-Random -Maximum $Cities.Count
+        $city = $Cities[$cityIdx]
+        $country = $Countries[($cityIdx % $Countries.Count)]
+        $company = $Companies | Get-Random
+        $streetAddr = $StreetAddresses | Get-Random
+        $postalCode = $PostalCodes | Get-Random
+        $description = $Descriptions | Get-Random
+        $phoneExt = (Get-Random -Minimum 1000 -Maximum 9999).ToString()
+        $phone = "+1-555-$phoneExt"
+        $mobilePrefix = @("+1-555-","+7-916-","+44-7700-","+49-170-","+81-90-","+86-138-") | Get-Random
+        $mobile = "$mobilePrefix$(Get-Random -Minimum 1000000 -Maximum 9999999)"
+        $initials = "$($firstName[0])$($lastName[0])"
 
         # Check if already exists (pinned to DC)
         $existing = Get-Mailbox -Identity $alias -DomainController $DC -ErrorAction SilentlyContinue
         if ($existing) {
             $Skipped++
-            # Still record in CSV if not already there
             $password = "***existing***"
             $CredsData += [PSCustomObject]@{
-                Number = $i
-                Alias = $alias
-                UPN = $upn
-                DisplayName = $displayName
-                Password = $password
-                SamAccountName = $alias
+                Number = $i; Alias = $alias; UPN = $upn
+                DisplayName = $displayName; Password = $password; SamAccountName = $alias
+                FirstName = $firstName; LastName = $lastName
+                Department = $dept; Title = $title; Office = $office
+                City = $city; Country = $country; Company = $company
+                Phone = $phone; Mobile = $mobile
             }
+
+            # Still update profile fields on existing users
+            try {
+                Set-User -Identity $alias -Department $dept -Title $title -Office $office `
+                    -City $city -CountryOrRegion $country -Company $company `
+                    -StreetAddress $streetAddr -PostalCode $postalCode `
+                    -Phone $phone -MobilePhone $mobile -Initials $initials `
+                    -Notes $description `
+                    -DomainController $DC -ErrorAction SilentlyContinue
+            } catch { }
             continue
         }
 
@@ -572,20 +715,37 @@ if ($StartPhase -le 1) {
                         -DomainController $DC `
                         -ErrorAction Stop | Out-Null
 
+            # Set additional user profile fields
+            Set-User -Identity $alias `
+                -Department $dept `
+                -Title $title `
+                -Office $office `
+                -City $city `
+                -CountryOrRegion $country `
+                -Company $company `
+                -StreetAddress $streetAddr `
+                -PostalCode $postalCode `
+                -Phone $phone `
+                -MobilePhone $mobile `
+                -Initials $initials `
+                -Notes $description `
+                -DomainController $DC `
+                -ErrorAction SilentlyContinue
+
             $Created++
-            Write-Log "  [$i/$UserCount] Created: $upn ($displayName)" "OK"
+            Write-Log "  [$i/$UserCount] Created: $upn ($displayName) — $title, $dept" "OK"
         } catch {
             Write-Log "  [$i/$UserCount] Failed: $upn — $_" "ERROR"
             $password = "***FAILED***"
         }
 
         $CredsData += [PSCustomObject]@{
-            Number = $i
-            Alias = $alias
-            UPN = $upn
-            DisplayName = $displayName
-            Password = $password
-            SamAccountName = $alias
+            Number = $i; Alias = $alias; UPN = $upn
+            DisplayName = $displayName; Password = $password; SamAccountName = $alias
+            FirstName = $firstName; LastName = $lastName
+            Department = $dept; Title = $title; Office = $office
+            City = $city; Country = $country; Company = $company
+            Phone = $phone; Mobile = $mobile
         }
 
         # Small delay to not overload AD
