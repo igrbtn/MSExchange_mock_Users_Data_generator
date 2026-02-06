@@ -8,7 +8,7 @@
     Phase 1: Create 300 mailbox-enabled users
     Phase 2: Validate SMTP relay on localhost:25
     Phase 3: Download/generate sample attachments (JPG, TXT, RTF)
-    Phase 4: Send ~34,000 emails via authenticated SMTP (new, reply, forward) with HTML formatting and inline images
+    Phase 4: Provision default mailbox folders via EWS login, then send ~34,000 emails via authenticated SMTP (new, reply, forward) with HTML formatting and inline images
     Phase 5: Generate report
 
     Resumable via state.json — re-run the script to continue from where it left off.
@@ -39,7 +39,9 @@ param(
     [int]$ChunkSize = 100,
     [int]$MaxAttachmentSizeMB = 10,
     [int]$InlineImagePercent = 30,
+    [string]$Database = "",
     [string]$SmtpServer = "",
+    [string]$EwsServer = "",
     [int]$SmtpPort = 465,
     [switch]$Force
 )
@@ -80,8 +82,14 @@ function Get-State {
     return @{
         phase = 0
         usersCreated = 0
+        database = ""
+        smtpServer = ""
+        ewsServer = ""
         impersonationReady = $false
         attachmentsReady = $false
+        foldersProvisioned = $false
+        contactsCreated = $false
+        calendarCreated = $false
         emailsSent = 0
         estimatedSizeGB = 0.0
         newMessagesSent = 0
@@ -367,24 +375,72 @@ $TextSnippets = @(
 )
 
 $EmailSubjects = @(
+    # English — business
     "Quarterly Report Q4 2025", "Meeting Request: Project Update",
-    "Re: Budget Approval", "FW: Conference Details", "Action Required: Review Document",
-    "Weekly Status Update", "Team Sync — Priorities", "Follow-up: Client Feedback",
+    "Action Required: Review Document", "Weekly Status Update",
+    "Team Sync — Priorities", "Follow-up: Client Feedback",
     "Updated Proposal Draft", "Infrastructure Maintenance Notice",
-    "New Policy Guidelines", "Training Schedule Update", "Vendor Evaluation Results",
-    "Project Timeline Revision", "Security Audit Findings", "Product Launch Roadmap",
-    "Customer Survey Results", "Office Relocation Plan", "Annual Review Preparation",
-    "Partnership Opportunity", "Technical Specification Review", "Compliance Update",
-    "Budget Forecast FY2026", "Team Building Event", "Service Level Agreement Draft",
-    "Data Migration Status", "Performance Metrics Report", "Risk Assessment Summary",
+    "New Policy Guidelines", "Training Schedule Update",
+    "Vendor Evaluation Results", "Project Timeline Revision",
+    "Security Audit Findings", "Product Launch Roadmap",
+    "Customer Survey Results", "Office Relocation Plan",
+    "Annual Review Preparation", "Partnership Opportunity",
+    "Technical Specification Review", "Compliance Update",
+    "Budget Forecast FY2026", "Team Building Event",
+    "Service Level Agreement Draft", "Data Migration Status",
+    "Performance Metrics Report", "Risk Assessment Summary",
     "Recruitment Update", "IT Support Ticket Summary",
+    "Network Upgrade Schedule", "Firewall Rule Change Request",
+    "Access Permissions Review", "Deployment Checklist — Production",
+    "Backup Verification Report", "Inventory Reconciliation Q1",
+    "Travel Authorization Request", "Expense Report — January",
+    "Contract Renewal Discussion", "Software License Audit",
+    "Incident Report #4521", "Change Management Board Agenda",
+    "Disaster Recovery Test Results", "Server Decommission Plan",
+    "Onboarding Checklist — New Hire", "Exit Interview Summary",
+    "Capacity Planning — Q2 2026", "SSL Certificate Expiration Notice",
+    "Patch Tuesday Update", "VPN Configuration Change",
+    "Print Queue Migration", "Phone System Upgrade",
+    "Holiday Schedule 2026", "Parking Lot Assignment Update",
+    "Health & Safety Inspection Report", "Fire Drill Schedule",
+    "Key Card Access Request", "Visitor Badge Policy Update",
+    "Equipment Return Form", "Asset Tag Verification",
+    "Monthly KPI Dashboard", "Customer Escalation — Priority",
+    "Account Reconciliation Notice", "Wire Transfer Confirmation",
+    "Invoice Discrepancy — PO#38291", "Supplier Payment Schedule",
+    # Russian
     "Отчёт за квартал", "Приглашение на совещание", "Обновление проекта",
+    "Заявка на отпуск", "Согласование бюджета", "План миграции серверов",
+    "Результаты аудита безопасности", "Запрос на доступ к системе",
+    "Обновление политики ИБ", "Акт выполненных работ",
+    # French
     "Rapport trimestriel", "Invitation reunion", "Mise a jour du projet",
+    "Demande de conge", "Approbation du budget", "Plan de migration",
+    "Rapport d'audit de securite", "Demande d'acces systeme",
+    # Spanish
     "Informe trimestral", "Solicitud de reunion", "Actualizacion del proyecto",
+    "Solicitud de vacaciones", "Aprobacion de presupuesto",
+    "Plan de migracion de servidores", "Informe de auditoria",
+    # German
     "Quartalsbericht", "Besprechungseinladung", "Projekt-Update",
+    "Urlaubsantrag", "Budgetfreigabe", "Server-Migrationsplan",
+    "Sicherheitsaudit Ergebnisse", "Systemzugangsanfrage",
+    # Japanese
     "四半期報告書", "会議の招待", "プロジェクト更新",
+    "休暇申請", "予算承認依頼", "サーバー移行計画",
+    # Chinese
     "季度报告", "会议邀请", "项目更新进展",
-    "Relatorio trimestral", "Convite para reuniao", "Atualizacao do projeto"
+    "休假申请", "预算审批", "服务器迁移计划",
+    # Portuguese
+    "Relatorio trimestral", "Convite para reuniao", "Atualizacao do projeto",
+    "Solicitacao de ferias", "Aprovacao de orcamento", "Plano de migracao",
+    # Italian
+    "Rapporto trimestrale", "Invito alla riunione", "Aggiornamento progetto",
+    "Richiesta ferie", "Approvazione budget", "Piano di migrazione server",
+    # Korean
+    "분기 보고서", "회의 초대", "프로젝트 업데이트", "휴가 신청", "예산 승인 요청",
+    # Arabic
+    "تقرير ربع سنوي", "دعوة اجتماع", "تحديث المشروع", "طلب إجازة", "الموافقة على الميزانية"
 )
 
 #####################################################################
@@ -625,13 +681,40 @@ if ($StartPhase -le 1) {
         }
     }
 
-    # Detect mailbox database
-    $MDB = (Get-MailboxDatabase -DomainController $DC | Select-Object -First 1).Name
-    if (-not $MDB) {
-        Write-Log "No mailbox database found" "ERROR"
-        exit 1
+    # ---- Select mailbox database ----
+    # Use saved database from state on resume, or -Database param, or ask interactively
+    if ($State.database) { $Database = $State.database }
+    if ([string]::IsNullOrEmpty($Database)) {
+        $allDBs = @(Get-MailboxDatabase -DomainController $DC -Status | Select-Object Name, ServerName, DatabaseSize | Sort-Object Name)
+        if ($allDBs.Count -eq 0) {
+            Write-Log "No mailbox databases found" "ERROR"
+            exit 1
+        } elseif ($allDBs.Count -eq 1) {
+            $MDB = $allDBs[0].Name
+            Write-Log "Single database detected: $MDB" "OK"
+        } else {
+            Write-Host ""
+            Write-Host "  Available Mailbox Databases:" -ForegroundColor Cyan
+            for ($di = 0; $di -lt $allDBs.Count; $di++) {
+                $dbSize = if ($allDBs[$di].DatabaseSize) { $allDBs[$di].DatabaseSize.ToString() } else { "N/A" }
+                Write-Host "    [$($di + 1)] $($allDBs[$di].Name)  (Server: $($allDBs[$di].ServerName), Size: $dbSize)" -ForegroundColor White
+            }
+            Write-Host ""
+            $dbChoice = Read-Host "  Select database number (1-$($allDBs.Count))"
+            $dbIdx = [int]$dbChoice - 1
+            if ($dbIdx -lt 0 -or $dbIdx -ge $allDBs.Count) {
+                Write-Log "Invalid choice, using first database" "WARN"
+                $dbIdx = 0
+            }
+            $MDB = $allDBs[$dbIdx].Name
+            Write-Log "Selected database: $MDB" "OK"
+        }
+    } else {
+        $MDB = $Database
+        Write-Log "Using specified database: $MDB"
     }
-    Write-Log "Using mailbox database: $MDB"
+    $State.database = $MDB
+    Save-State $State
 
     # Prepare credentials CSV
     $CredsData = @()
@@ -786,59 +869,89 @@ if ($StartPhase -le 2) {
     # Detect domain for email addresses
     $DomainFQDN = if ($DomainFQDN) { $DomainFQDN } else { (Get-ADDomain -Server $DC).DNSRoot }
 
+    # ---- Detect Exchange servers ----
+    Write-Log "Detecting Exchange servers..."
+    $ExServers = @()
+    try {
+        $ExServers = @(Get-ExchangeServer | Where-Object {
+            $_.ServerRole -match "Mailbox" -and $_.AdminDisplayVersion -match "15\."
+        } | Sort-Object Name)
+    } catch {
+        try {
+            $ExServers = @(Get-ClientAccessServer | Sort-Object Name)
+        } catch {
+            Write-Log "Cannot enumerate Exchange servers: $_" "WARN"
+        }
+    }
+
+    # Build FQDN list for display
+    $ExServerFqdns = @()
+    foreach ($srv in $ExServers) {
+        $fqdn = $srv.Fqdn
+        if (-not $fqdn) { $fqdn = "$($srv.Name).$DomainFQDN" }
+        $ExServerFqdns += $fqdn
+    }
+    $localFqdn = [System.Net.Dns]::GetHostEntry([System.Net.Dns]::GetHostName()).HostName
+
+    if ($ExServers.Count -gt 0) {
+        Write-Host ""
+        Write-Host "  Available Exchange servers:" -ForegroundColor Cyan
+        for ($si = 0; $si -lt $ExServers.Count; $si++) {
+            $roles = $ExServers[$si].ServerRole
+            Write-Host "    [$($si + 1)] $($ExServerFqdns[$si])  ($roles)" -ForegroundColor White
+        }
+        Write-Host ""
+    } else {
+        Write-Log "No Exchange servers found via cmdlets, using local FQDN: $localFqdn" "WARN"
+    }
+
     # ---- Select SMTP server ----
     if ([string]::IsNullOrEmpty($SmtpServer)) {
-        Write-Log "Detecting Exchange servers..."
-        $ExServers = @()
-        try {
-            # Exchange 2016/2019 — all Mailbox role servers have CAS
-            $ExServers = @(Get-ExchangeServer | Where-Object {
-                $_.ServerRole -match "Mailbox" -and $_.AdminDisplayVersion -match "15\."
-            } | Sort-Object Name)
-        } catch {
-            try {
-                # Fallback: Get-ClientAccessServer (older Exchange versions)
-                $ExServers = @(Get-ClientAccessServer | Sort-Object Name)
-            } catch {
-                Write-Log "Cannot enumerate Exchange servers: $_" "WARN"
-            }
-        }
-
         if ($ExServers.Count -eq 0) {
-            # Last resort: use local server FQDN
-            $SmtpServer = [System.Net.Dns]::GetHostEntry([System.Net.Dns]::GetHostName()).HostName
-            Write-Log "No Exchange servers found via cmdlets, using local FQDN: $SmtpServer" "WARN"
+            $SmtpServer = $localFqdn
         } elseif ($ExServers.Count -eq 1) {
-            $SmtpServer = $ExServers[0].Fqdn
-            if (-not $SmtpServer) { $SmtpServer = "$($ExServers[0].Name).$DomainFQDN" }
-            Write-Log "Single Exchange server detected: $SmtpServer" "OK"
+            $SmtpServer = $ExServerFqdns[0]
+            Write-Log "Single Exchange server — using as SMTP: $SmtpServer" "OK"
         } else {
-            Write-Host ""
-            Write-Host "  Available Exchange servers:" -ForegroundColor Cyan
-            for ($si = 0; $si -lt $ExServers.Count; $si++) {
-                $srvFqdn = $ExServers[$si].Fqdn
-                if (-not $srvFqdn) { $srvFqdn = "$($ExServers[$si].Name).$DomainFQDN" }
-                $roles = $ExServers[$si].ServerRole
-                Write-Host "    [$($si + 1)] $srvFqdn  ($roles)" -ForegroundColor White
-            }
-            Write-Host ""
-            $choice = Read-Host "  Select server number (1-$($ExServers.Count))"
+            $choice = Read-Host "  Select SMTP server number (1-$($ExServers.Count))"
             $choiceIdx = [int]$choice - 1
             if ($choiceIdx -lt 0 -or $choiceIdx -ge $ExServers.Count) {
                 Write-Log "Invalid choice, using first server" "WARN"
                 $choiceIdx = 0
             }
-            $SmtpServer = $ExServers[$choiceIdx].Fqdn
-            if (-not $SmtpServer) { $SmtpServer = "$($ExServers[$choiceIdx].Name).$DomainFQDN" }
+            $SmtpServer = $ExServerFqdns[$choiceIdx]
             Write-Log "Selected SMTP server: $SmtpServer" "OK"
         }
     } else {
         Write-Log "Using specified SMTP server: $SmtpServer"
     }
 
+    # ---- Select EWS server ----
+    if ([string]::IsNullOrEmpty($EwsServer)) {
+        if ($ExServers.Count -eq 0) {
+            $EwsServer = $localFqdn
+        } elseif ($ExServers.Count -eq 1) {
+            $EwsServer = $ExServerFqdns[0]
+            Write-Log "Single Exchange server — using as EWS: $EwsServer" "OK"
+        } else {
+            Write-Host ""
+            $ewsChoice = Read-Host "  Select EWS server number (1-$($ExServers.Count)) [same list above]"
+            $ewsIdx = [int]$ewsChoice - 1
+            if ($ewsIdx -lt 0 -or $ewsIdx -ge $ExServers.Count) {
+                Write-Log "Invalid choice, using first server" "WARN"
+                $ewsIdx = 0
+            }
+            $EwsServer = $ExServerFqdns[$ewsIdx]
+            Write-Log "Selected EWS server: $EwsServer" "OK"
+        }
+    } else {
+        Write-Log "Using specified EWS server: $EwsServer"
+    }
+
     # Store in state for Phase 4
     $State.smtpServer = $SmtpServer
     $State.smtpPort = $SmtpPort
+    $State.ewsServer = $EwsServer
 
     # ---- Test SMTP connectivity ----
     Write-Log "Testing SMTP connectivity: ${SmtpServer}:${SmtpPort}..."
@@ -1013,6 +1126,11 @@ if ($StartPhase -le 2) {
     $State.phase = 3
     Save-State $State
 
+    Write-Host ""
+    Write-Host "  Infrastructure Summary:" -ForegroundColor Cyan
+    Write-Host "    Database:    $($State.database)" -ForegroundColor White
+    Write-Host "    SMTP Server: $SmtpServer`:$SmtpPort" -ForegroundColor White
+    Write-Host "    EWS Server:  $EwsServer" -ForegroundColor White
     Write-Host ""
     Write-Host "--- Phase 2 Complete ---" -ForegroundColor Green
     Write-Host ""
@@ -1261,9 +1379,500 @@ if ($StartPhase -le 4) {
     $UserCount = $Users.Count
     Write-Log "Loaded $UserCount users with credentials"
 
+    # ---- Provision default mailbox folders (Sent Items, Drafts, etc.) ----
+    # Exchange does not create default folders until the first user login.
+    # We simulate a login by making an authenticated EWS GetFolder request per user.
+    if (-not $State.foldersProvisioned) {
+        $EwsHost = if ($State.ewsServer) { $State.ewsServer } else { $State.smtpServer }
+        $EwsUrl = "https://$EwsHost/EWS/Exchange.asmx"
+
+        Write-Log "Provisioning default mailbox folders via EWS login ($EwsUrl)..."
+        Write-Log "  This triggers Exchange to create Sent Items, Drafts, etc."
+
+        # Trust self-signed certs (lab environment)
+        try {
+            Add-Type @"
+using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+public class TrustAll {
+    public static void Enable() {
+        ServicePointManager.ServerCertificateValidationCallback =
+            delegate { return true; };
+    }
+}
+"@
+            [TrustAll]::Enable()
+        } catch {
+            # Type already added — ignore
+        }
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+
+        # EWS SOAP request — GetFolder for sentitems triggers full folder tree creation
+        $SoapTemplate = @'
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
+               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">
+  <soap:Body>
+    <m:GetFolder>
+      <m:FolderShape>
+        <t:BaseShape>IdOnly</t:BaseShape>
+      </m:FolderShape>
+      <m:FolderIds>
+        <t:DistinguishedFolderId Id="sentitems"/>
+      </m:FolderIds>
+    </m:GetFolder>
+  </soap:Body>
+</soap:Envelope>
+'@
+
+        # Parallel provisioning via RunspacePool
+        $ProvisionBlock = {
+            param($EwsUrl, $Upn, $Password)
+            try {
+                # Trust self-signed certs inside runspace
+                Add-Type @"
+using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+public class TrustAllRS {
+    public static void Enable() {
+        ServicePointManager.ServerCertificateValidationCallback =
+            delegate { return true; };
+    }
+}
+"@ -ErrorAction SilentlyContinue
+                [TrustAllRS]::Enable()
+                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+
+                $soapBody = @"
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
+               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">
+  <soap:Body>
+    <m:GetFolder>
+      <m:FolderShape>
+        <t:BaseShape>IdOnly</t:BaseShape>
+      </m:FolderShape>
+      <m:FolderIds>
+        <t:DistinguishedFolderId Id="sentitems"/>
+      </m:FolderIds>
+    </m:GetFolder>
+  </soap:Body>
+</soap:Envelope>
+"@
+                $cred = New-Object System.Net.NetworkCredential($Upn, $Password)
+                $webReq = [System.Net.HttpWebRequest]::Create($EwsUrl)
+                $webReq.Method = "POST"
+                $webReq.ContentType = "text/xml; charset=utf-8"
+                $webReq.Credentials = $cred
+                $webReq.Timeout = 30000
+
+                $bytes = [System.Text.Encoding]::UTF8.GetBytes($soapBody)
+                $webReq.ContentLength = $bytes.Length
+                $stream = $webReq.GetRequestStream()
+                $stream.Write($bytes, 0, $bytes.Length)
+                $stream.Close()
+
+                $resp = $webReq.GetResponse()
+                $code = [int]$resp.StatusCode
+                $resp.Close()
+
+                return @{ UPN = $Upn; Success = $true; Status = $code; Error = "" }
+            } catch {
+                return @{ UPN = $Upn; Success = $false; Status = 0; Error = $_.Exception.Message }
+            }
+        }
+
+        $pool = [RunspaceFactory]::CreateRunspacePool(1, $Threads)
+        $pool.Open()
+
+        $jobs = @()
+        foreach ($u in $Users) {
+            $ps = [PowerShell]::Create().AddScript($ProvisionBlock)
+            [void]$ps.AddArgument($EwsUrl)
+            [void]$ps.AddArgument($u.UPN)
+            [void]$ps.AddArgument($u.Password)
+            $ps.RunspacePool = $pool
+            $jobs += @{ PS = $ps; Handle = $ps.BeginInvoke(); UPN = $u.UPN }
+        }
+
+        $okCount = 0
+        $failCount = 0
+        $idx = 0
+        foreach ($job in $jobs) {
+            $idx++
+            try {
+                $result = $job.PS.EndInvoke($job.Handle)
+                if ($result -and $result[0].Success) {
+                    $okCount++
+                } else {
+                    $failCount++
+                    $errMsg = if ($result) { $result[0].Error } else { "no result" }
+                    Write-Log "  FAIL: $($job.UPN) — $errMsg" "WARN"
+                }
+            } catch {
+                $failCount++
+                Write-Log "  FAIL: $($job.UPN) — $_" "WARN"
+            }
+            $job.PS.Dispose()
+
+            if ($idx % 50 -eq 0) {
+                Write-Log "  Provisioned $idx / $($Users.Count) mailboxes (OK: $okCount, Fail: $failCount)..."
+            }
+        }
+
+        $pool.Close()
+        $pool.Dispose()
+
+        Write-Log "Folder provisioning complete: $okCount OK, $failCount failed out of $($Users.Count)" $(if ($failCount -eq 0) { "OK" } else { "WARN" })
+
+        $State.foldersProvisioned = $true
+        Save-State $State
+    } else {
+        Write-Log "Default folders already provisioned (skipping)"
+    }
+
     # Build a hashtable for fast credential lookup by UPN
     $UserCredMap = @{}
     foreach ($u in $Users) { $UserCredMap[$u.UPN] = $u }
+
+    # ---- Create contacts in each user's mailbox via EWS ----
+    if (-not $State.contactsCreated) {
+        $EwsHost = if ($State.ewsServer) { $State.ewsServer } else { if ($State.smtpServer) { $State.smtpServer } else { $SmtpServer } }
+        $EwsUrl = "https://$EwsHost/EWS/Exchange.asmx"
+        Write-Log "Creating contacts in each user's mailbox via EWS ($EwsUrl)..."
+
+        # Each user gets 10-30 random contacts from the other mock users
+        $ContactBlock = {
+            param($EwsUrl, $Upn, $Password, [string]$ContactsXml)
+            try {
+                Add-Type @"
+using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+public class TrustAllC {
+    public static void Enable() {
+        ServicePointManager.ServerCertificateValidationCallback =
+            delegate { return true; };
+    }
+}
+"@ -ErrorAction SilentlyContinue
+                [TrustAllC]::Enable()
+                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+
+                $cred = New-Object System.Net.NetworkCredential($Upn, $Password)
+                $created = 0
+
+                # ContactsXml is a "|" separated list of "FirstName;LastName;Email;Company;Phone;Title;Dept"
+                foreach ($entry in $ContactsXml.Split('|')) {
+                    if ([string]::IsNullOrWhiteSpace($entry)) { continue }
+                    $fields = $entry.Split(';')
+                    if ($fields.Count -lt 7) { continue }
+
+                    $soapBody = @"
+<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
+               xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">
+  <soap:Body>
+    <m:CreateItem>
+      <m:SavedItemFolderId>
+        <t:DistinguishedFolderId Id="contacts"/>
+      </m:SavedItemFolderId>
+      <m:Items>
+        <t:Contact>
+          <t:GivenName>$($fields[0])</t:GivenName>
+          <t:Surname>$($fields[1])</t:Surname>
+          <t:DisplayName>$($fields[0]) $($fields[1])</t:DisplayName>
+          <t:EmailAddresses>
+            <t:Entry Key="EmailAddress1">$($fields[2])</t:Entry>
+          </t:EmailAddresses>
+          <t:CompanyName>$($fields[3])</t:CompanyName>
+          <t:PhoneNumbers>
+            <t:Entry Key="BusinessPhone">$($fields[4])</t:Entry>
+          </t:PhoneNumbers>
+          <t:JobTitle>$($fields[5])</t:JobTitle>
+          <t:Department>$($fields[6])</t:Department>
+        </t:Contact>
+      </m:Items>
+    </m:CreateItem>
+  </soap:Body>
+</soap:Envelope>
+"@
+                    $webReq = [System.Net.HttpWebRequest]::Create($EwsUrl)
+                    $webReq.Method = "POST"
+                    $webReq.ContentType = "text/xml; charset=utf-8"
+                    $webReq.Credentials = $cred
+                    $webReq.Timeout = 15000
+
+                    $bytes = [System.Text.Encoding]::UTF8.GetBytes($soapBody)
+                    $webReq.ContentLength = $bytes.Length
+                    $stream = $webReq.GetRequestStream()
+                    $stream.Write($bytes, 0, $bytes.Length)
+                    $stream.Close()
+
+                    $resp = $webReq.GetResponse()
+                    $resp.Close()
+                    $created++
+                }
+
+                return @{ UPN = $Upn; Success = $true; Created = $created; Error = "" }
+            } catch {
+                return @{ UPN = $Upn; Success = $false; Created = 0; Error = $_.Exception.Message }
+            }
+        }
+
+        $contactPool = [RunspaceFactory]::CreateRunspacePool(1, $Threads)
+        $contactPool.Open()
+        $contactJobs = @()
+
+        foreach ($u in $Users) {
+            # Pick 10-30 random contacts from other users
+            $contactCount = Get-Random -Minimum 10 -Maximum 31
+            $contactUsers = $Users | Where-Object { $_.UPN -ne $u.UPN } | Get-Random -Count ([math]::Min($contactCount, $Users.Count - 1))
+
+            # Build serialized contact data string (avoid passing complex objects to runspace)
+            $contactEntries = @()
+            foreach ($cu in $contactUsers) {
+                $fn = ($cu.DisplayName -split ' ')[0]
+                $ln = ($cu.DisplayName -split ' ',2)[1]
+                if (-not $ln) { $ln = "User" }
+                $comp = if ($cu.Company) { $cu.Company } else { "Global Solutions Ltd" }
+                $phone = if ($cu.Phone) { $cu.Phone } else { "+1-555-$(Get-Random -Minimum 1000 -Maximum 9999)" }
+                $title = if ($cu.Title) { $cu.Title } else { "Specialist" }
+                $dept = if ($cu.Department) { $cu.Department } else { "IT" }
+                # Escape XML special chars
+                $fn = $fn -replace '&','&amp;' -replace '<','&lt;' -replace '>','&gt;'
+                $ln = $ln -replace '&','&amp;' -replace '<','&lt;' -replace '>','&gt;'
+                $comp = $comp -replace '&','&amp;' -replace '<','&lt;' -replace '>','&gt;'
+                $title = $title -replace '&','&amp;' -replace '<','&lt;' -replace '>','&gt;'
+                $dept = $dept -replace '&','&amp;' -replace '<','&lt;' -replace '>','&gt;'
+                $contactEntries += "$fn;$ln;$($cu.UPN);$comp;$phone;$title;$dept"
+            }
+            $contactsXml = $contactEntries -join '|'
+
+            $ps = [PowerShell]::Create().AddScript($ContactBlock)
+            [void]$ps.AddArgument($EwsUrl)
+            [void]$ps.AddArgument($u.UPN)
+            [void]$ps.AddArgument($u.Password)
+            [void]$ps.AddArgument($contactsXml)
+            $ps.RunspacePool = $contactPool
+            $contactJobs += @{ PS = $ps; Handle = $ps.BeginInvoke(); UPN = $u.UPN }
+        }
+
+        $cOk = 0; $cFail = 0; $totalContacts = 0; $cIdx = 0
+        foreach ($job in $contactJobs) {
+            $cIdx++
+            try {
+                $result = $job.PS.EndInvoke($job.Handle)
+                if ($result -and $result[0].Success) {
+                    $cOk++
+                    $totalContacts += $result[0].Created
+                } else {
+                    $cFail++
+                    $errMsg = if ($result) { $result[0].Error } else { "no result" }
+                    Write-Log "  Contacts FAIL: $($job.UPN) — $errMsg" "WARN"
+                }
+            } catch {
+                $cFail++
+                Write-Log "  Contacts FAIL: $($job.UPN) — $_" "WARN"
+            }
+            $job.PS.Dispose()
+            if ($cIdx % 50 -eq 0) {
+                Write-Log "  Contacts: $cIdx / $($Users.Count) users processed ($totalContacts contacts created)..."
+            }
+        }
+
+        $contactPool.Close()
+        $contactPool.Dispose()
+        Write-Log "Contacts created: $totalContacts across $cOk users ($cFail failed)" $(if ($cFail -eq 0) { "OK" } else { "WARN" })
+
+        $State.contactsCreated = $true
+        Save-State $State
+    } else {
+        Write-Log "Contacts already created (skipping)"
+    }
+
+    # ---- Send calendar meeting invitations via SMTP (iCalendar) ----
+    if (-not $State.calendarCreated) {
+        $SmtpServerForCal = if ($State.smtpServer) { $State.smtpServer } else { $SmtpServer }
+        $CalSmtpPort = if ($State.smtpPort) { [int]$State.smtpPort } else { $SmtpPort }
+        if (-not $script:TargetDC) { $script:TargetDC = (Get-ADDomain).PDCEmulator }
+        $DC = $script:TargetDC
+        $CalDomain = if ($DomainFQDN) { $DomainFQDN } else { (Get-ADDomain -Server $DC).DNSRoot }
+
+        Write-Log "Sending calendar meeting invitations via SMTP ($SmtpServerForCal`:$CalSmtpPort)..."
+
+        # Meeting subjects and locations
+        $MeetingSubjects = @(
+            "Weekly Team Standup", "Project Review", "Sprint Planning",
+            "Budget Discussion", "Client Call", "1:1 Check-in",
+            "Architecture Review", "Code Review Session", "Design Workshop",
+            "All Hands Meeting", "Training Session", "Strategy Planning",
+            "Incident Retrospective", "Performance Review", "Onboarding Session",
+            "Product Demo", "Technical Deep Dive", "Quarterly Business Review",
+            "Security Briefing", "Compliance Training", "Vendor Meeting",
+            "Brainstorming Session", "Lunch & Learn", "Town Hall",
+            "Совещание по проекту", "Планирование спринта", "Обзор архитектуры",
+            "Reunion hebdomadaire", "Revue de projet", "Session de formation",
+            "Reuniao semanal", "Revisao de projeto", "Sessao de treinamento"
+        )
+
+        $MeetingLocations = @(
+            "Conference Room A", "Conference Room B", "Conference Room C",
+            "Board Room", "Meeting Room 101", "Meeting Room 205",
+            "Training Room", "Auditorium", "Cafeteria",
+            "Microsoft Teams", "Zoom Call", "Google Meet",
+            "Building A, Floor 2", "Building B, Floor 3", "Main Office",
+            "Remote / Online", "HQ Large Conference Room"
+        )
+
+        $CalendarBlock = {
+            param($SmtpServer, $SmtpPort, $From, $FromPassword, $FromName,
+                  [string[]]$Attendees, $Subject, $Location, $StartTime, $EndTime, $Domain, $Uid)
+
+            try {
+                $dtStart = [datetime]::Parse($StartTime).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
+                $dtEnd = [datetime]::Parse($EndTime).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")
+                $dtStamp = [datetime]::UtcNow.ToString("yyyyMMddTHHmmssZ")
+
+                $attendeeLines = ""
+                foreach ($a in $Attendees) {
+                    $attendeeLines += "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:$a`r`n"
+                }
+
+                $icsContent = @"
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//MockData//Exchange//EN
+METHOD:REQUEST
+BEGIN:VEVENT
+UID:$Uid
+DTSTAMP:$dtStamp
+DTSTART:$dtStart
+DTEND:$dtEnd
+SUMMARY:$Subject
+LOCATION:$Location
+ORGANIZER;CN=$($FromName):mailto:$From
+$($attendeeLines.TrimEnd())
+DESCRIPTION:This is a scheduled meeting. Please join on time.
+STATUS:CONFIRMED
+SEQUENCE:0
+TRANSP:OPAQUE
+BEGIN:VALARM
+TRIGGER:-PT15M
+ACTION:DISPLAY
+DESCRIPTION:Reminder
+END:VALARM
+END:VEVENT
+END:VCALENDAR
+"@
+
+                $mail = New-Object System.Net.Mail.MailMessage
+                $mail.From = New-Object System.Net.Mail.MailAddress($From, $FromName)
+                foreach ($addr in $Attendees) { $mail.To.Add($addr) }
+                $mail.Subject = $Subject
+                $mail.SubjectEncoding = [System.Text.Encoding]::UTF8
+
+                # Create iCalendar alternate view (this makes Exchange process it as a meeting)
+                $calType = New-Object System.Net.Mime.ContentType("text/calendar")
+                $calType.Parameters.Add("method", "REQUEST")
+                $calType.CharSet = "utf-8"
+                $calView = [System.Net.Mail.AlternateView]::CreateAlternateViewFromString($icsContent, $calType)
+                $mail.AlternateViews.Add($calView)
+
+                # Also add a plain text body for non-Exchange clients
+                $mail.Body = "You have been invited to: $Subject`nLocation: $Location`nTime: $StartTime — $EndTime"
+                $mail.IsBodyHtml = $false
+
+                $smtp = New-Object System.Net.Mail.SmtpClient($SmtpServer, $SmtpPort)
+                $smtp.EnableSsl = $true
+                $smtp.Credentials = New-Object System.Net.NetworkCredential($From, $FromPassword)
+                $smtp.Send($mail)
+                $mail.Dispose()
+                $smtp.Dispose()
+
+                return @{ Success = $true; Error = $null }
+            } catch {
+                return @{ Success = $false; Error = $_.Exception.Message }
+            }
+        }
+
+        # Each user creates 5-15 meetings with 2-8 attendees over the next 90 days
+        $calPool = [RunspaceFactory]::CreateRunspacePool(1, $Threads)
+        $calPool.Open()
+        $calJobs = @()
+        $totalMeetings = 0
+
+        foreach ($u in $Users) {
+            $meetingCount = Get-Random -Minimum 5 -Maximum 16
+            for ($mi = 0; $mi -lt $meetingCount; $mi++) {
+                $attendeeCount = Get-Random -Minimum 2 -Maximum 9
+                $attendees = @(($Users | Where-Object { $_.UPN -ne $u.UPN } | Get-Random -Count ([math]::Min($attendeeCount, $Users.Count - 1))) | ForEach-Object { $_.UPN })
+
+                $daysAhead = Get-Random -Minimum -30 -Maximum 91
+                $hour = Get-Random -Minimum 8 -Maximum 18
+                $minute = @(0, 15, 30, 45) | Get-Random
+                $duration = @(30, 45, 60, 90, 120) | Get-Random
+                $startDt = (Get-Date).Date.AddDays($daysAhead).AddHours($hour).AddMinutes($minute)
+                $endDt = $startDt.AddMinutes($duration)
+                $uid = [guid]::NewGuid().ToString() + "@$CalDomain"
+
+                $ps = [PowerShell]::Create().AddScript($CalendarBlock)
+                [void]$ps.AddArgument($SmtpServerForCal)
+                [void]$ps.AddArgument($CalSmtpPort)
+                [void]$ps.AddArgument($u.UPN)
+                [void]$ps.AddArgument($u.Password)
+                [void]$ps.AddArgument($u.DisplayName)
+                [void]$ps.AddArgument($attendees)
+                [void]$ps.AddArgument(($MeetingSubjects | Get-Random))
+                [void]$ps.AddArgument(($MeetingLocations | Get-Random))
+                [void]$ps.AddArgument($startDt.ToString("o"))
+                [void]$ps.AddArgument($endDt.ToString("o"))
+                [void]$ps.AddArgument($CalDomain)
+                [void]$ps.AddArgument($uid)
+                $ps.RunspacePool = $calPool
+                $calJobs += @{ PS = $ps; Handle = $ps.BeginInvoke() }
+                $totalMeetings++
+            }
+        }
+
+        Write-Log "  Dispatched $totalMeetings meeting invitations across $($Users.Count) organizers..."
+
+        $calOk = 0; $calFail = 0; $calIdx = 0
+        foreach ($job in $calJobs) {
+            $calIdx++
+            try {
+                $result = $job.PS.EndInvoke($job.Handle)
+                if ($result -and $result[0].Success) { $calOk++ }
+                else {
+                    $calFail++
+                    if ($calFail -le 5) {
+                        $errMsg = if ($result) { $result[0].Error } else { "no result" }
+                        Write-Log "  Calendar FAIL: $errMsg" "WARN"
+                    }
+                }
+            } catch {
+                $calFail++
+            }
+            $job.PS.Dispose()
+            if ($calIdx % 200 -eq 0) {
+                Write-Log "  Calendar: $calIdx / $totalMeetings processed (OK: $calOk, Fail: $calFail)..."
+            }
+        }
+
+        $calPool.Close()
+        $calPool.Dispose()
+        Write-Log "Calendar events complete: $calOk sent, $calFail failed out of $totalMeetings" $(if ($calFail -eq 0) { "OK" } else { "WARN" })
+
+        $State.calendarCreated = $true
+        Save-State $State
+    } else {
+        Write-Log "Calendar events already created (skipping)"
+    }
 
     # Load attachments list
     $JpgFiles = @(Get-ChildItem $JpgDir -Filter "*.jpg" -ErrorAction SilentlyContinue)
@@ -1369,7 +1978,7 @@ if ($StartPhase -le 4) {
         param(
             [string]$SmtpServer, [int]$SmtpPort, [string]$DomainFQDN,
             [string]$From, [string]$FromPassword,
-            [string[]]$To, [string]$Subject, [string]$HtmlBody,
+            [string[]]$To, [string[]]$Cc, [string]$Subject, [string]$HtmlBody,
             [string[]]$AttachmentPaths, [string]$InlineImagePath, [string]$InlineCid,
             [string]$InReplyTo, [string]$References
         )
@@ -1378,6 +1987,7 @@ if ($StartPhase -le 4) {
             $mail = New-Object System.Net.Mail.MailMessage
             $mail.From = New-Object System.Net.Mail.MailAddress($From)
             foreach ($addr in $To) { $mail.To.Add($addr) }
+            foreach ($addr in $Cc) { if ($addr) { $mail.CC.Add($addr) } }
             $mail.Subject = $Subject
             $mail.IsBodyHtml = $true
             $mail.SubjectEncoding = [System.Text.Encoding]::UTF8
@@ -1438,6 +2048,7 @@ if ($StartPhase -le 4) {
             [void]$ps.AddParameter("From", $wi.From)
             [void]$ps.AddParameter("FromPassword", $wi.FromPassword)
             [void]$ps.AddParameter("To", $wi.To)
+            [void]$ps.AddParameter("Cc", $(if ($wi.Cc) { $wi.Cc } else { @() }))
             [void]$ps.AddParameter("Subject", $wi.Subject)
             [void]$ps.AddParameter("HtmlBody", $wi.HtmlBody)
             [void]$ps.AddParameter("AttachmentPaths", $wi.AttachmentPaths)
@@ -1491,8 +2102,19 @@ if ($StartPhase -le 4) {
         for ($ci = 0; $ci -lt $remaining; $ci++) {
             $userIdx = ($newSent + $ci) % $UserCount
             $sender = $Users[$userIdx]
-            $recipientCount = Get-Random -Minimum 1 -Maximum 4
+            $recipientCount = Get-Random -Minimum 1 -Maximum 6  # 1-5 To recipients
             $recipients = Get-RandomRecipients -SenderUPN $sender.UPN -Count $recipientCount
+
+            # 40% chance of CC recipients (1-4 people)
+            $ccRecipients = @()
+            if ((Get-Random -Minimum 1 -Maximum 101) -le 40) {
+                $ccCount = Get-Random -Minimum 1 -Maximum 5
+                $excludeList = @($sender.UPN) + @($recipients | ForEach-Object { $_.UPN })
+                $ccPool = $Users | Where-Object { $_.UPN -notin $excludeList }
+                if ($ccPool.Count -gt 0) {
+                    $ccRecipients = @($ccPool | Get-Random -Count ([math]::Min($ccCount, $ccPool.Count)))
+                }
+            }
 
             $inlineCid = $null; $inlineImagePath = $null
             if ((Get-Random -Minimum 1 -Maximum 101) -le $InlineImagePercent -and $JpgFiles.Count -gt 0) {
@@ -1509,6 +2131,7 @@ if ($StartPhase -le 4) {
                 From            = $sender.UPN
                 FromPassword    = $sender.Password
                 To              = @($recipients | ForEach-Object { $_.UPN })
+                Cc              = @($ccRecipients | ForEach-Object { $_.UPN })
                 Subject         = $subject
                 HtmlBody        = $htmlBody
                 AttachmentPaths = $attachPaths
@@ -1606,10 +2229,22 @@ $($TextSnippets | Get-Random)
 "@
             $attachPaths = Get-RandomAttachmentPaths
 
+            # 30% chance of CC'ing 1-3 other people on the reply
+            $replyCc = @()
+            if ((Get-Random -Minimum 1 -Maximum 101) -le 30) {
+                $ccCount = Get-Random -Minimum 1 -Maximum 4
+                $excludeList = @($replySenderUPN, $origMsg.SenderUPN)
+                $ccPool = $Users | Where-Object { $_.UPN -notin $excludeList }
+                if ($ccPool.Count -gt 0) {
+                    $replyCc = @($ccPool | Get-Random -Count ([math]::Min($ccCount, $ccPool.Count)) | ForEach-Object { $_.UPN })
+                }
+            }
+
             [void]$chunk.Add(@{
                 From            = $replySenderUPN
                 FromPassword    = $replySenderCred.Password
                 To              = @($origMsg.SenderUPN)
+                Cc              = $replyCc
                 Subject         = "Re: $($origMsg.Subject)"
                 HtmlBody        = $replyHtml
                 AttachmentPaths = $attachPaths
@@ -1668,7 +2303,20 @@ $($TextSnippets | Get-Random)
             $fwdSenderCred = $UserCredMap[$fwdSenderUPN]
             if (-not $fwdSenderCred) { continue }
 
-            $fwdRecipient = Get-RandomRecipients -SenderUPN $fwdSenderUPN -Count 1
+            # Forward to 1-3 To recipients + optional 1-3 CC
+            $fwdToCount = Get-Random -Minimum 1 -Maximum 4
+            $fwdRecipients = Get-RandomRecipients -SenderUPN $fwdSenderUPN -Count $fwdToCount
+
+            $fwdCc = @()
+            if ((Get-Random -Minimum 1 -Maximum 101) -le 35) {
+                $ccCount = Get-Random -Minimum 1 -Maximum 4
+                $excludeList = @($fwdSenderUPN) + @($fwdRecipients | ForEach-Object { $_.UPN })
+                $ccPool = $Users | Where-Object { $_.UPN -notin $excludeList }
+                if ($ccPool.Count -gt 0) {
+                    $fwdCc = @($ccPool | Get-Random -Count ([math]::Min($ccCount, $ccPool.Count)) | ForEach-Object { $_.UPN })
+                }
+            }
+
             $fwdText = $TextSnippets | Get-Random
             $sig = Get-HtmlSignature -DisplayName $origMsg.RecipientName -Email $fwdSenderUPN
 
@@ -1691,7 +2339,8 @@ $($TextSnippets | Get-Random)
             [void]$chunk.Add(@{
                 From            = $fwdSenderUPN
                 FromPassword    = $fwdSenderCred.Password
-                To              = @($fwdRecipient[0].UPN)
+                To              = @($fwdRecipients | ForEach-Object { $_.UPN })
+                Cc              = $fwdCc
                 Subject         = "FW: $($origMsg.Subject)"
                 HtmlBody        = $fwdHtml
                 AttachmentPaths = $attachPaths
@@ -1700,8 +2349,8 @@ $($TextSnippets | Get-Random)
                 InReplyTo       = $null
                 References      = $null
                 SenderName      = $origMsg.RecipientName
-                RecipientUPN    = $fwdRecipient[0].UPN
-                RecipientName   = $fwdRecipient[0].DisplayName
+                RecipientUPN    = $fwdRecipients[0].UPN
+                RecipientName   = $fwdRecipients[0].DisplayName
             })
         }
 
@@ -1741,7 +2390,18 @@ $($TextSnippets | Get-Random)
             for ($ci = 0; $ci -lt $ChunkSize; $ci++) {
                 $userIdx = ($emailsSent + $ci) % $UserCount
                 $sender = $Users[$userIdx]
-                $recipients = Get-RandomRecipients -SenderUPN $sender.UPN -Count (Get-Random -Minimum 1 -Maximum 4)
+                $recipients = Get-RandomRecipients -SenderUPN $sender.UPN -Count (Get-Random -Minimum 1 -Maximum 6)
+
+                # 40% chance of CC
+                $extraCc = @()
+                if ((Get-Random -Minimum 1 -Maximum 101) -le 40) {
+                    $ccCount = Get-Random -Minimum 1 -Maximum 5
+                    $excludeList = @($sender.UPN) + @($recipients | ForEach-Object { $_.UPN })
+                    $ccPool = $Users | Where-Object { $_.UPN -notin $excludeList }
+                    if ($ccPool.Count -gt 0) {
+                        $extraCc = @($ccPool | Get-Random -Count ([math]::Min($ccCount, $ccPool.Count)) | ForEach-Object { $_.UPN })
+                    }
+                }
 
                 $inlineCid = $null; $inlineImagePath = $null
                 if ((Get-Random -Minimum 1 -Maximum 101) -le $InlineImagePercent -and $JpgFiles.Count -gt 0) {
@@ -1762,6 +2422,7 @@ $($TextSnippets | Get-Random)
                 [void]$chunk.Add(@{
                     From = $sender.UPN; FromPassword = $sender.Password
                     To = @($recipients | ForEach-Object { $_.UPN })
+                    Cc = $extraCc
                     Subject = ($EmailSubjects | Get-Random); HtmlBody = $htmlBody
                     AttachmentPaths = $attachPaths; InlineImagePath = $inlineImagePath
                     InlineCid = $inlineCid; InReplyTo = $null; References = $null

@@ -1,6 +1,6 @@
 # Exchange Mock Data Generator
 
-PowerShell script that generates realistic email data on Microsoft Exchange Server 2019 for testing and migration validation. Creates bulk users with fully populated AD profiles, downloads/generates sample attachments, and sends thousands of emails (new messages, replies, forwards) with HTML formatting, inline images, and multi-language content.
+PowerShell script that generates realistic email data on Microsoft Exchange Server 2019 for testing and migration validation. Creates bulk users with fully populated AD profiles, populates contacts and calendar events, downloads/generates sample attachments, and sends thousands of emails (new messages, replies, forwards) with HTML formatting, inline images, CC recipients, and multi-language content.
 
 ## Architecture
 
@@ -15,6 +15,12 @@ PowerShell script that generates realistic email data on Microsoft Exchange Serv
 │  │ x 300 users   │    │ (on PDC DC)  │    │ (full profile data)   │  │
 │  └──────┬───────┘    └──────────────┘    └───────────────────────┘  │
 │         │                                                            │
+│         ▼            ┌──────────────────────────────────┐           │
+│  ┌──────────────┐    │ Interactive selection:            │           │
+│  │ Select        │◀──│  "Available Mailbox Databases:"  │           │
+│  │ Database      │    │  [1] MDB01 (EX01, 52 GB)        │           │
+│  └──────┬───────┘    │  [2] MDB02 (EX02, 18 GB)        │           │
+│         │            └──────────────────────────────────┘           │
 │         ▼                                                            │
 │  ┌──────────────────────────────────────────────────────┐           │
 │  │ Set-User: populate AD fields per user                 │           │
@@ -26,18 +32,25 @@ PowerShell script that generates realistic email data on Microsoft Exchange Serv
 │  │  └────────────┘ └───────────┘ └────────────────────┘ │           │
 │  └──────────────────────────────────────────────────────┘           │
 │                                                                      │
-│  Phase 2: Configure SMTP + Throttling                                │
+│  Phase 2: Configure SMTP + EWS + Throttling                         │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │ Interactive server selection (shown once, chosen separately):   │ │
+│  │                                                                 │ │
+│  │  Available Exchange servers:                                    │ │
+│  │   [1] EX01.lab.contoso.com  (Mailbox)                          │ │
+│  │   [2] EX02.lab.contoso.com  (Mailbox)                          │ │
+│  │                                                                 │ │
+│  │  Select SMTP server number (1-2): _                            │ │
+│  │  Select EWS server number (1-2): _                             │ │
+│  └────────────────────────────────────────────────────────────────┘ │
 │  ┌───────────────────┐  ┌─────────────────────────────────────────┐ │
-│  │ Detect Exchange    │  │ Auto-create ThrottlingPolicy            │ │
-│  │ servers → user     │  │ "MockDataBulkSend" (Unlimited rates)   │ │
-│  │ selects one        │  │ Apply to all 300 users                  │ │
-│  └────────┬──────────┘  └─────────────────────────────────────────┘ │
-│           │                                                          │
-│           ▼                                                          │
-│  ┌───────────────────┐  ┌─────────────────────────────────────────┐ │
-│  │ Test auth SMTP     │  │ Raise transport delivery limits         │ │
-│  │ port 465 + SSL     │  │ MaxConcurrentMailboxDeliveries = 100   │ │
-│  └───────────────────┘  │ MaxConcurrentMailboxSubmissions = 100   │ │
+│  │ Test auth SMTP     │  │ Auto-create ThrottlingPolicy            │ │
+│  │ port 465 + SSL     │  │ "MockDataBulkSend" (Unlimited rates)   │ │
+│  └───────────────────┘  │ Apply to all 300 users                  │ │
+│                          ├─────────────────────────────────────────┤ │
+│                          │ Raise transport delivery limits         │ │
+│                          │ MaxConcurrentMailboxDeliveries = 100    │ │
+│                          │ MaxConcurrentMailboxSubmissions = 100   │ │
 │                          │ Receive Connector = unlimited           │ │
 │                          └─────────────────────────────────────────┘ │
 │                                                                      │
@@ -52,38 +65,42 @@ PowerShell script that generates realistic email data on Microsoft Exchange Serv
 │              Attachments/ pool                                       │
 │              (100 files total)                                       │
 │                                                                      │
-│  Phase 4: Send Emails (RunspacePool — parallel)                      │
+│  Phase 4: Provision Folders → Contacts → Calendar → Send Emails      │
 │  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  Main thread (work generator)                                 │   │
-│  │  ┌─────────┐                                                  │   │
-│  │  │ Generate │── chunk of 100 work items ──┐                   │   │
-│  │  │ emails   │                              │                   │   │
-│  │  └────┬────┘                              ▼                   │   │
-│  │       │                    ┌───────────────────────┐          │   │
-│  │       │                    │   RunspacePool (N)    │          │   │
-│  │       │                    │  ┌───┐┌───┐┌───┐     │          │   │
-│  │       │                    │  │ W1││ W2││...│ x N  │          │   │
-│  │       │                    │  └─┬─┘└─┬─┘└─┬─┘     │          │   │
-│  │       │                    └────┼────┼────┼───────┘          │   │
-│  │       │                         │    │    │                   │   │
-│  │       │                         ▼    ▼    ▼                   │   │
-│  │       │                    ┌───────────────────┐              │   │
-│  │       │                    │  SMTP 465 + SSL   │              │   │
-│  │       │                    │  (per-user auth)  │              │   │
-│  │       │                    └─────────┬─────────┘              │   │
-│  │       │                              │                        │   │
-│  │       │◀── collect results ──────────┘                        │   │
-│  │       │                                                       │   │
-│  │  ┌────▼────┐                                                  │   │
-│  │  │ Update   │ state.json, threads.json                        │   │
-│  │  │ counters │ (resumable on re-run)                           │   │
-│  │  └─────────┘                                                  │   │
+│  │                                                               │   │
+│  │  4.0  Provision Default Folders (EWS)                         │   │
+│  │  ┌────────────────────────────────────────────────────────┐  │   │
+│  │  │ Auth EWS GetFolder(sentitems) per user (parallel)      │  │   │
+│  │  │ → Exchange creates Inbox, Sent Items, Drafts, etc.     │  │   │
+│  │  └────────────────────────────────────────────────────────┘  │   │
+│  │                                                               │   │
+│  │  4.1  Create Contacts (EWS)                                   │   │
+│  │  ┌────────────────────────────────────────────────────────┐  │   │
+│  │  │ Each user gets 10-30 contacts from other mock users    │  │   │
+│  │  │ Fields: Name, Email, Company, Phone, Title, Department │  │   │
+│  │  │ Created via EWS CreateItem in Contacts folder          │  │   │
+│  │  └────────────────────────────────────────────────────────┘  │   │
+│  │                                                               │   │
+│  │  4.2  Calendar Events (SMTP + iCalendar)                      │   │
+│  │  ┌────────────────────────────────────────────────────────┐  │   │
+│  │  │ Each user creates 5-15 meetings (METHOD:REQUEST)       │  │   │
+│  │  │ 2-8 attendees, spread across -30 to +90 days           │  │   │
+│  │  │ 30 meeting subjects, 17 locations, 15-min reminders    │  │   │
+│  │  │ Sent as text/calendar MIME → Exchange creates events   │  │   │
+│  │  └────────────────────────────────────────────────────────┘  │   │
+│  │                                                               │   │
+│  │  4a-c Send Emails (RunspacePool — parallel)                   │   │
+│  │  ┌────────────────────────────────────────────────────────┐  │   │
+│  │  │  Main thread generates chunks → RunspacePool (N)       │  │   │
+│  │  │  ┌───────────────────────────────────────────────────┐ │  │   │
+│  │  │  │  4a: 50% New messages  (1-5 To + 0-4 CC)         │ │  │   │
+│  │  │  │  4b: 30% Replies       (To + 0-3 CC)             │ │  │   │
+│  │  │  │  4c: 20% Forwards      (1-3 To + 0-3 CC)         │ │  │   │
+│  │  │  └───────────────────────────────────────────────────┘ │  │   │
+│  │  │  SMTP 465 + SSL, per-user auth, ~110 email subjects    │  │   │
+│  │  │  Results → state.json + threads.json (resumable)       │  │   │
+│  │  └────────────────────────────────────────────────────────┘  │   │
 │  └──────────────────────────────────────────────────────────────┘   │
-│                                                                      │
-│  Email Distribution:                                                 │
-│   50% New messages ──▶ saved in threads.json (Message-ID)           │
-│   30% Replies ───────▶ In-Reply-To + References headers             │
-│   20% Forwards ──────▶ FW: prefix + original body quoted            │
 │                                                                      │
 │  Phase 5: Report                                                     │
 │  ┌──────────────────────────────────────────────────────┐           │
@@ -131,28 +148,72 @@ Randomized fields (22 departments, 30 job titles, 25 offices,
                     26 cities/countries, 20 companies, 16 street addresses)
 ```
 
+## Contacts & Calendar
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Contacts (per user)                                         │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  10-30 contacts created in each user's mailbox        │   │
+│  │  Sourced from other mock users' AD profiles           │   │
+│  │                                                        │   │
+│  │  Fields populated:                                     │   │
+│  │   • First Name / Last Name / Display Name              │   │
+│  │   • Email Address (EmailAddress1)                      │   │
+│  │   • Company Name                                       │   │
+│  │   • Business Phone                                     │   │
+│  │   • Job Title                                          │   │
+│  │   • Department                                         │   │
+│  │                                                        │   │
+│  │  Created via EWS CreateItem → Contacts folder          │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                                                              │
+│  Calendar Events (per user)                                  │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  5-15 meeting invitations per organizer               │   │
+│  │  2-8 attendees per meeting                            │   │
+│  │  Time range: -30 days (past) to +90 days (future)     │   │
+│  │  Duration: 30 / 45 / 60 / 90 / 120 min               │   │
+│  │  Business hours: 08:00 — 18:00                        │   │
+│  │                                                        │   │
+│  │  30 meeting subjects (EN, RU, FR, PT)                  │   │
+│  │  17 locations (rooms, online, buildings)               │   │
+│  │  15-minute reminder alarm                              │   │
+│  │                                                        │   │
+│  │  Sent as iCalendar METHOD:REQUEST via SMTP             │   │
+│  │  → Exchange creates calendar items for all attendees   │   │
+│  └──────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────┘
+```
+
 ## Email Content
 
 ```
-┌────────────────────────────────────────────┐
-│  5 HTML Templates         10 Languages     │
-│  ┌──────────────────┐  ┌────────────────┐  │
-│  │ Business Formal   │  │ English        │  │
-│  │ Casual             │  │ Russian        │  │
-│  │ Report (tables)    │  │ Spanish        │  │
-│  │ Newsletter (img)   │  │ French         │  │
-│  │ Simple Reply       │  │ German         │  │
-│  └──────────────────┘  │ Chinese        │  │
-│                         │ Japanese       │  │
-│  Attachments per email: │ Arabic         │  │
-│   40% — none            │ Portuguese     │  │
-│   30% — 1 small file    │ Italian        │  │
-│   20% — 1 medium file   └────────────────┘  │
-│   10% — 1-3 large files                     │
-│                                              │
-│  30% of emails include inline images (CID)  │
-│  All emails have HTML signatures            │
-└────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│  5 HTML Templates         10 Languages    ~110 Subjects   │
+│  ┌──────────────────┐  ┌────────────────┐  ┌───────────┐ │
+│  │ Business Formal   │  │ English        │  │ EN (64)   │ │
+│  │ Casual             │  │ Russian        │  │ RU (10)   │ │
+│  │ Report (tables)    │  │ Spanish        │  │ FR (8)    │ │
+│  │ Newsletter (img)   │  │ French         │  │ ES (7)    │ │
+│  │ Simple Reply       │  │ German         │  │ DE (8)    │ │
+│  └──────────────────┘  │ Chinese        │  │ JP (6)    │ │
+│                         │ Japanese       │  │ CN (6)    │ │
+│  Recipients per email:  │ Arabic         │  │ PT (6)    │ │
+│   To:  1-5 recipients   │ Portuguese     │  │ IT (6)    │ │
+│   CC:  40% chance 1-4   │ Italian        │  │ KR (5)    │ │
+│                         └────────────────┘  │ AR (5)    │ │
+│  Attachments per email:                      └───────────┘ │
+│   40% — none                                               │
+│   30% — 1 small file                                       │
+│   20% — 1 medium file                                      │
+│   10% — 1-3 large files                                    │
+│                                                             │
+│  30% of emails include inline images (CID)                 │
+│  All emails have HTML signatures                           │
+│  Replies: In-Reply-To + References headers + quoted text   │
+│  Forwards: FW: prefix + original sender/subject in body    │
+└───────────────────────────────────────────────────────────┘
 ```
 
 ## Requirements
@@ -161,6 +222,7 @@ Randomized fields (22 departments, 30 job titles, 25 offices,
 - **Windows PowerShell 5.1** (runs in Exchange Management Shell)
 - **Permissions**: Domain Admin + Organization Management role group
 - **SMTP**: Port 465 (SSL) must be accessible on the target Exchange server
+- **EWS**: HTTPS (443) for folder provisioning, contacts, and calendar
 - **ActiveDirectory** PowerShell module (RSAT)
 
 ## Quick Start
@@ -170,13 +232,20 @@ Randomized fields (22 departments, 30 job titles, 25 offices,
 .\Generate-ExchangeMockData.ps1
 ```
 
-The script will:
-1. Create 300 users with mailboxes and full AD profiles in `OU=MockUsers`
-2. Let you select which Exchange server to use for SMTP
-3. Auto-configure throttling policies (user rate + transport delivery limits)
-4. Download/generate 100 sample attachment files
-5. Send ~68,000 emails in parallel (10 threads) to reach ~100GB
-6. Print a summary report
+The script will interactively ask you to select:
+1. **Mailbox Database** — which database to create user mailboxes in
+2. **SMTP Server** — which Exchange server to use for sending emails
+3. **EWS Server** — which Exchange server to use for contacts/calendar/folders
+
+Then it:
+4. Creates 300 users with mailboxes and full AD profiles in `OU=MockUsers`
+5. Auto-configures throttling policies (user rate + transport delivery limits)
+6. Downloads/generates 100 sample attachment files
+7. Provisions default mailbox folders (Sent Items, Drafts, etc.)
+8. Creates 10-30 contacts per user from the mock user pool
+9. Sends 5-15 calendar meeting invitations per user
+10. Sends ~68,000 emails in parallel (10 threads) to reach ~100GB
+11. Prints a summary report
 
 ## Parameters
 
@@ -184,10 +253,12 @@ The script will:
 |-----------|---------|-------------|
 | `-TargetSizeGB` | `100` | Target total mailbox database size |
 | `-UserCount` | `300` | Number of mock users to create |
-| `-Threads` | `10` | Parallel SMTP send threads |
-| `-ChunkSize` | `100` | Work items per batch |
-| `-SmtpServer` | auto-detect | Exchange server FQDN for SMTP |
+| `-Database` | interactive | Mailbox database name for user creation |
+| `-SmtpServer` | interactive | Exchange server FQDN for SMTP sending |
+| `-EwsServer` | interactive | Exchange server FQDN for EWS operations |
 | `-SmtpPort` | `465` | SMTP port (465 for SSL, or 587) |
+| `-Threads` | `10` | Parallel send/provision threads |
+| `-ChunkSize` | `100` | Work items per batch |
 | `-SkipToPhase` | auto | Resume from a specific phase (1-5) |
 | `-UserPrefix` | `mockuser` | Username prefix (e.g. mockuser001) |
 | `-MockUsersOU` | `MockUsers` | OU name for mock user accounts |
@@ -197,19 +268,22 @@ The script will:
 ## Examples
 
 ```powershell
-# Default: 300 users, 100GB, 10 threads
+# Default: 300 users, 100GB, 10 threads (interactive server/DB selection)
 .\Generate-ExchangeMockData.ps1
 
 # Smaller test: 50 users, 10GB
 .\Generate-ExchangeMockData.ps1 -UserCount 50 -TargetSizeGB 10
 
+# Pre-select all infrastructure (no interactive prompts)
+.\Generate-ExchangeMockData.ps1 -Database "MDB01" -SmtpServer ex01.contoso.com -EwsServer ex01.contoso.com
+
 # Resume from Phase 4 with more threads
 .\Generate-ExchangeMockData.ps1 -SkipToPhase 4 -Threads 20
 
-# Use a specific Exchange server and port 587
-.\Generate-ExchangeMockData.ps1 -SmtpServer ex01.contoso.com -SmtpPort 587
+# Use different servers for SMTP and EWS
+.\Generate-ExchangeMockData.ps1 -SmtpServer ex01.contoso.com -EwsServer ex02.contoso.com
 
-# Re-run Phase 2 (re-select server, re-apply throttling)
+# Re-run Phase 2 (re-select servers, re-apply throttling)
 Remove-Item state.json
 .\Generate-ExchangeMockData.ps1 -SkipToPhase 2
 ```
@@ -256,10 +330,10 @@ The `users_credentials.csv` includes all profile data per user:
 ## How It Works
 
 ### Phase 1 — User Creation + AD Profile Population
-Creates N mailbox-enabled users (`mockuser001` through `mockuser300`) in a dedicated OU. All AD and Exchange operations are pinned to the PDC Emulator to avoid replication lag. Names are drawn from 300 first names and 300 last names across 12 cultures (English, Russian, Spanish, Portuguese, French, German, Chinese, Japanese, Arabic, Indian, Korean, Italian, Nordic) and shuffled for unique combinations. After creating the mailbox, `Set-User` populates 12+ AD fields: Department, Title, Office, Company, City, Country, Street Address, Postal Code, Phone, Mobile, Initials, and Notes. Credentials and all profile data exported to CSV.
+Creates N mailbox-enabled users (`mockuser001` through `mockuser300`) in a dedicated OU. Interactively asks which mailbox database to use (shows all databases with server and size info). All AD and Exchange operations are pinned to the PDC Emulator to avoid replication lag. Names are drawn from 300 first names and 300 last names across 12 cultures (English, Russian, Spanish, Portuguese, French, German, Chinese, Japanese, Arabic, Indian, Korean, Italian, Nordic) and shuffled for unique combinations. After creating the mailbox, `Set-User` populates 12+ AD fields: Department, Title, Office, Company, City, Country, Street Address, Postal Code, Phone, Mobile, Initials, and Notes. Credentials and all profile data exported to CSV.
 
-### Phase 2 — SMTP + Throttling Configuration
-Enumerates Exchange servers and lets you pick which one to use for SMTP. Tests authenticated SMTP (SSL on port 465) with a real test message. Automatically:
+### Phase 2 — SMTP + EWS + Throttling Configuration
+Enumerates Exchange servers and lets you choose separately which server to use for **SMTP** (email sending) and **EWS** (folder provisioning, contacts, calendar). Tests authenticated SMTP (SSL on port 465) with a real test message. Displays an infrastructure summary. Automatically:
 - Creates a `MockDataBulkSend` throttling policy (MessageRateLimit=Unlimited, RecipientRateLimit=Unlimited)
 - Applies it to all mock users
 - Raises `MessageRateLimit` on Receive Connectors to unlimited
@@ -268,11 +342,21 @@ Enumerates Exchange servers and lets you pick which one to use for SMTP. Tests a
 ### Phase 3 — Attachments
 Tries to download 50 JPEG images from the internet (picsum.photos, placehold.co, dummyimage.com). Falls back to generating gradient images with shapes using `System.Drawing` if the server has no internet access. Generates 30 multi-language text files and 20 RTF files with formatted content programmatically.
 
-### Phase 4 — Email Sending (Parallel)
-Uses a **PowerShell RunspacePool** for parallel SMTP delivery:
-- Main thread generates work items (pre-builds HTML body, picks recipients/attachments)
+### Phase 4 — Folders, Contacts, Calendar, Emails
+
+**4.0 Folder Provisioning** — Authenticates as each user via EWS `GetFolder(sentitems)` to force Exchange to create all default folders (Inbox, Sent Items, Drafts, Deleted Items, etc.). Runs in parallel via RunspacePool.
+
+**4.1 Contacts** — Creates 10-30 contacts in each user's Contacts folder via EWS `CreateItem`. Contact data is sourced from other mock users' AD profiles (name, email, company, phone, job title, department). Runs in parallel.
+
+**4.2 Calendar Events** — Each user organizes 5-15 meetings by sending iCalendar `METHOD:REQUEST` invitations via SMTP. Meetings have 2-8 attendees, span -30 to +90 days, use business hours, and include 15-minute reminders. Exchange processes the iCalendar and creates proper calendar items for all attendees. Runs in parallel.
+
+**4a-c Email Sending** — Uses a PowerShell RunspacePool for parallel SMTP delivery:
+- Main thread generates work items (pre-builds HTML body, picks recipients/attachments/CC)
 - Dispatches chunks of 100 items to a pool of N worker threads
 - Each worker authenticates as the sender user via SMTP 465 + SSL
+- ~110 email subjects across 10 languages
+- **To**: 1-5 recipients, **CC**: 40% chance of 1-4 additional recipients
+- Replies include CC (30% chance), forwards go to 1-3 To + CC (35% chance)
 - Results collected, counters updated, state saved after each chunk
 - Fully resumable — tracks progress in `state.json`
 
@@ -281,9 +365,22 @@ Email distribution: 50% new messages, 30% replies (with `In-Reply-To`/`Reference
 ### Phase 5 — Report
 Queries actual mailbox database size and sample mailbox statistics. Exports summary to CSV.
 
-## Resumability
+## State Tracking
 
-The script saves progress to `state.json` after every chunk. If interrupted (Ctrl+C, reboot, error), simply re-run the script — it picks up from where it left off.
+The script saves progress to `state.json` after every step. Tracked fields include:
+
+| Field | Purpose |
+|-------|---------|
+| `database` | Selected mailbox database |
+| `smtpServer` / `smtpPort` | Selected SMTP server |
+| `ewsServer` | Selected EWS server |
+| `foldersProvisioned` | Default folders created |
+| `contactsCreated` | Contacts populated |
+| `calendarCreated` | Calendar events sent |
+| `emailsSent` | Total emails sent |
+| `estimatedSizeGB` | Estimated cumulative size |
+
+If interrupted (Ctrl+C, reboot, error), simply re-run the script — it picks up from where it left off. Server selections are remembered from state.
 
 To force a full restart:
 ```powershell
@@ -308,6 +405,7 @@ Get-MailboxDatabase -Status | Select Name, DatabaseSize
 # Check a sample mailbox
 Get-MailboxStatistics mockuser001 | Select ItemCount, TotalItemSize
 
+# Check contacts (via EWS or OWA)
 # Open OWA as a mock user (use credentials from CSV)
 # https://mail.yourdomain.com/owa
 ```
@@ -335,12 +433,15 @@ Get-TransportService | Set-TransportService -MaxConcurrentMailboxDeliveries 20 -
 | Phase | Duration (300 users, 100GB) |
 |-------|----------------------------|
 | 1 — Create users + profiles | ~20 min |
-| 2 — SMTP + throttling setup | ~5 min |
+| 2 — SMTP/EWS + throttling setup | ~5 min |
 | 3 — Attachments | ~5-10 min |
-| 4 — Send emails (10 threads) | ~4-8 hours |
+| 4.0 — Folder provisioning | ~5 min |
+| 4.1 — Contacts (~6,000 total) | ~10-15 min |
+| 4.2 — Calendar (~3,000 meetings) | ~10-15 min |
+| 4a-c — Send emails (10 threads) | ~4-8 hours |
 | **Total** | **~5-9 hours** |
 
-Performance scales roughly linearly with `-Threads`. With 20 threads: ~2-4 hours.
+Performance scales roughly linearly with `-Threads`. With 20 threads: ~2-4 hours for email sending.
 
 ## License
 
