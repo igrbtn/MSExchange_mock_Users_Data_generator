@@ -418,7 +418,7 @@ To remove all mock data:
 # Remove all mock mailboxes
 Get-Mailbox -OrganizationalUnit MockUsers | Remove-Mailbox -Confirm:$false
 
-# Remove the OU
+# Remove the OU (replace DC=yourdomain,DC=com with your domain)
 Remove-ADOrganizationalUnit "OU=MockUsers,DC=yourdomain,DC=com" -Recursive -Confirm:$false
 
 # Remove throttling policy
@@ -426,6 +426,25 @@ Remove-ThrottlingPolicy -Identity MockDataBulkSend -Confirm:$false
 
 # Reset transport limits (optional)
 Get-TransportService | Set-TransportService -MaxConcurrentMailboxDeliveries 20 -MaxConcurrentMailboxSubmissions 20
+
+# Clean up local state files
+Remove-Item state.json, threads.json, users_credentials.csv -ErrorAction SilentlyContinue
+```
+
+## Download / Update on Server
+
+```powershell
+# First time — clone (if git is installed):
+git clone https://github.com/igrbtn/MSExchange_mock_Users_Data_generator.git
+cd MSExchange_mock_Users_Data_generator
+
+# First time — without git (download zip):
+Invoke-WebRequest -Uri "https://github.com/igrbtn/MSExchange_mock_Users_Data_generator/archive/refs/heads/main.zip" -OutFile "$env:TEMP\mockdata.zip"
+Expand-Archive "$env:TEMP\mockdata.zip" -DestinationPath C:\Scripts -Force
+Rename-Item "C:\Scripts\MSExchange_mock_Users_Data_generator-main" "C:\Scripts\ExchangeMockData"
+
+# Pull updates (if cloned with git):
+git pull
 ```
 
 ## Estimated Runtime
