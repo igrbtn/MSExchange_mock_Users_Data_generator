@@ -1547,8 +1547,8 @@ public class TrustAllRS {
         # Each user gets 10-30 random contacts from the other mock users
         $ContactBlock = {
             param($EwsUrl, $Upn, $Password, [string]$ContactsXml)
-            try {
-                Add-Type @"
+
+            Add-Type @"
 using System.Net;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
@@ -1559,19 +1559,21 @@ public class TrustAllC {
     }
 }
 "@ -ErrorAction SilentlyContinue
-                [TrustAllC]::Enable()
-                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+            [TrustAllC]::Enable()
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 
-                $cred = New-Object System.Net.NetworkCredential($Upn, $Password)
-                $created = 0
+            $cred = New-Object System.Net.NetworkCredential($Upn, $Password)
+            $created = 0
+            $failed = 0
+            $lastError = ""
 
-                # ContactsXml is a "|" separated list of "FirstName;LastName;Email;Company;Phone;Title;Dept"
-                foreach ($entry in $ContactsXml.Split('|')) {
-                    if ([string]::IsNullOrWhiteSpace($entry)) { continue }
-                    $fields = $entry.Split(';')
-                    if ($fields.Count -lt 7) { continue }
+            # ContactsXml is a "|" separated list of "FirstName;LastName;Email;Company;Phone;Title;Dept"
+            foreach ($entry in $ContactsXml.Split('|')) {
+                if ([string]::IsNullOrWhiteSpace($entry)) { continue }
+                $fields = $entry.Split(';')
+                if ($fields.Count -lt 7) { continue }
 
-                    $soapBody = @"
+                $soapBody = @"
 <?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
                xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"
@@ -1601,31 +1603,61 @@ public class TrustAllC {
   </soap:Body>
 </soap:Envelope>
 "@
-                    $webReq = [System.Net.HttpWebRequest]::Create($EwsUrl)
-                    $webReq.Method = "POST"
-                    $webReq.ContentType = "text/xml; charset=utf-8"
-                    $webReq.Credentials = $cred
-                    $webReq.Timeout = 15000
+                # Retry up to 3 times with backoff
+                $ok = $false
+                for ($retry = 0; $retry -lt 3; $retry++) {
+                    try {
+                        $webReq = [System.Net.HttpWebRequest]::Create($EwsUrl)
+                        $webReq.Method = "POST"
+                        $webReq.ContentType = "text/xml; charset=utf-8"
+                        $webReq.Credentials = $cred
+                        $webReq.Timeout = 30000
 
-                    $bytes = [System.Text.Encoding]::UTF8.GetBytes($soapBody)
-                    $webReq.ContentLength = $bytes.Length
-                    $stream = $webReq.GetRequestStream()
-                    $stream.Write($bytes, 0, $bytes.Length)
-                    $stream.Close()
+                        $bytes = [System.Text.Encoding]::UTF8.GetBytes($soapBody)
+                        $webReq.ContentLength = $bytes.Length
+                        $stream = $webReq.GetRequestStream()
+                        $stream.Write($bytes, 0, $bytes.Length)
+                        $stream.Close()
 
-                    $resp = $webReq.GetResponse()
-                    $resp.Close()
-                    $created++
+                        $resp = $webReq.GetResponse()
+                        $resp.Close()
+                        $created++
+                        $ok = $true
+                        break
+                    } catch {
+                        # Read error response body for diagnostics
+                        $errBody = ""
+                        try {
+                            $errResp = $_.Exception.InnerException.Response
+                            if ($errResp) {
+                                $errStream = $errResp.GetResponseStream()
+                                $reader = New-Object System.IO.StreamReader($errStream)
+                                $errBody = $reader.ReadToEnd()
+                                $reader.Close()
+                            }
+                        } catch {}
+
+                        $lastError = $_.Exception.Message
+                        if ($errBody -match 'faultstring[>]([^<]+)') { $lastError += " | $($Matches[1])" }
+
+                        # Wait before retry (1s, 3s, 5s)
+                        Start-Sleep -Milliseconds (($retry + 1) * 2000)
+                    }
                 }
+                if (-not $ok) { $failed++ }
 
-                return @{ UPN = $Upn; Success = $true; Created = $created; Error = "" }
-            } catch {
-                return @{ UPN = $Upn; Success = $false; Created = 0; Error = $_.Exception.Message }
+                # Small delay between contacts to avoid EWS throttling
+                Start-Sleep -Milliseconds 200
             }
+
+            $success = ($created -gt 0)
+            return @{ UPN = $Upn; Success = $success; Created = $created; Failed = $failed; Error = $lastError }
         }
 
-        $contactPool = [RunspaceFactory]::CreateRunspacePool(1, $Threads)
+        $ewsThreads = [math]::Min($Threads, 5)  # Limit EWS concurrency to avoid 500 errors
+        $contactPool = [RunspaceFactory]::CreateRunspacePool(1, $ewsThreads)
         $contactPool.Open()
+        Write-Log "  Using $ewsThreads EWS threads for contact creation..."
         $contactJobs = @()
 
         foreach ($u in $Users) {
@@ -1663,7 +1695,7 @@ public class TrustAllC {
             $contactJobs += @{ PS = $ps; Handle = $ps.BeginInvoke(); UPN = $u.UPN }
         }
 
-        $cOk = 0; $cFail = 0; $totalContacts = 0; $cIdx = 0
+        $cOk = 0; $cFail = 0; $totalContacts = 0; $totalFailed = 0; $cIdx = 0
         foreach ($job in $contactJobs) {
             $cIdx++
             try {
@@ -1671,6 +1703,10 @@ public class TrustAllC {
                 if ($result -and $result[0].Success) {
                     $cOk++
                     $totalContacts += $result[0].Created
+                    $totalFailed += $result[0].Failed
+                    if ($result[0].Failed -gt 0) {
+                        Write-Log "  Partial: $($job.UPN) — $($result[0].Created) ok, $($result[0].Failed) failed" "WARN"
+                    }
                 } else {
                     $cFail++
                     $errMsg = if ($result) { $result[0].Error } else { "no result" }
@@ -1682,7 +1718,7 @@ public class TrustAllC {
             }
             $job.PS.Dispose()
             if ($cIdx % 50 -eq 0) {
-                Write-Log "  Contacts: $cIdx / $($Users.Count) users processed ($totalContacts contacts created)..."
+                Write-Log "  Contacts: $cIdx / $($Users.Count) users processed ($totalContacts created, $totalFailed failed)..."
             }
         }
 
