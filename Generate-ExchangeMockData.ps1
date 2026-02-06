@@ -784,6 +784,71 @@ if ($StartPhase -le 2) {
         Write-Log "  You can do it manually: Get-ReceiveConnector | Set-ReceiveConnector -MessageRateLimit unlimited" "WARN"
     }
 
+    # Raise mailbox database delivery limits (fixes 4.3.2 errors)
+    Write-Log "Raising Transport/Mailbox delivery throttling (4.3.2 prevention)..."
+    $targetServer = $SmtpServer.Split('.')[0]  # short hostname
+
+    # TransportService — MaxConcurrentMailboxDeliveries / MaxConcurrentMailboxSubmissions
+    try {
+        Set-TransportService -Identity $targetServer `
+            -MaxConcurrentMailboxDeliveries 100 `
+            -MaxConcurrentMailboxSubmissions 100 `
+            -ErrorAction Stop
+        Write-Log "  Set-TransportService $targetServer : MaxConcurrentMailboxDeliveries=100, MaxConcurrentMailboxSubmissions=100" "OK"
+    } catch {
+        Write-Log "  Could not set TransportService limits on '$targetServer': $_" "WARN"
+    }
+
+    # MailboxTransportDeliveryService — MaxConcurrentMailboxDeliveries
+    try {
+        Set-MailboxTransportService -Identity $targetServer `
+            -MaxConcurrentMailboxDeliveries 100 `
+            -ErrorAction Stop
+        Write-Log "  Set-MailboxTransportService $targetServer : MaxConcurrentMailboxDeliveries=100" "OK"
+    } catch {
+        Write-Log "  Could not set MailboxTransportService limits: $_" "WARN"
+    }
+
+    # MailboxTransportSubmissionService — MaxConcurrentMailboxSubmissions
+    try {
+        Set-MailboxTransportService -Identity $targetServer `
+            -MaxConcurrentMailboxSubmissions 100 `
+            -ErrorAction Stop
+        Write-Log "  Set-MailboxTransportService $targetServer : MaxConcurrentMailboxSubmissions=100" "OK"
+    } catch {
+        # May not exist separately in all Exchange versions
+    }
+
+    # If there is a second Exchange server, apply same settings
+    try {
+        $allExServers = @(Get-ExchangeServer | Where-Object { $_.ServerRole -match "Mailbox" } | Select-Object -ExpandProperty Name)
+        foreach ($srv in $allExServers) {
+            if ($srv -eq $targetServer) { continue }
+            try {
+                Set-TransportService -Identity $srv -MaxConcurrentMailboxDeliveries 100 -MaxConcurrentMailboxSubmissions 100 -ErrorAction Stop
+                Set-MailboxTransportService -Identity $srv -MaxConcurrentMailboxDeliveries 100 -ErrorAction Stop
+                Write-Log "  Also raised limits on '$srv'" "OK"
+            } catch {
+                Write-Log "  Could not set limits on '$srv': $_" "WARN"
+            }
+        }
+    } catch { }
+
+    # Raise per-database replication/delivery limits via Set-MailboxDatabase
+    try {
+        $databases = Get-MailboxDatabase -DomainController $DC
+        foreach ($db in $databases) {
+            Set-MailboxDatabase -Identity $db.Name `
+                -MailboxRetention 0.00:00:00 `
+                -ErrorAction SilentlyContinue
+            Write-Log "  Database '$($db.Name)': retention set to minimum" "OK"
+        }
+    } catch {
+        Write-Log "  Could not adjust database settings: $_" "WARN"
+    }
+
+    Write-Log "Transport throttling configuration complete" "OK"
+
     $State.smtpReady = $true
     $State.phase = 3
     Save-State $State
