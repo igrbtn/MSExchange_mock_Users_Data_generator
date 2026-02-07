@@ -10,17 +10,19 @@ PowerShell script that generates realistic email data on Microsoft Exchange Serv
 ├──────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  Phase 1: Create Users + Populate AD Profiles                        │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │ Interactive setup prompts:                                      │ │
+│  │  "How many users to create? [300]"                              │ │
+│  │  "OU name for mock users? [MockUsers]"                          │ │
+│  │  "Password mode: [1] Random per user  [2] Same for all"        │ │
+│  │  "Available Mailbox Databases:"                                 │ │
+│  │   [1] MDB01 (EX01, 52 GB)                                      │ │
+│  │   [2] MDB02 (EX02, 18 GB)                                      │ │
+│  └────────────────────────────────────────────────────────────────┘ │
 │  ┌──────────────┐    ┌──────────────┐    ┌───────────────────────┐  │
 │  │ New-Mailbox   │───▶│ OU=MockUsers │───▶│ users_credentials.csv │  │
-│  │ x 300 users   │    │ (on PDC DC)  │    │ (full profile data)   │  │
+│  │ x N users     │    │ (on PDC DC)  │    │ (full profile data)   │  │
 │  └──────┬───────┘    └──────────────┘    └───────────────────────┘  │
-│         │                                                            │
-│         ▼            ┌──────────────────────────────────┐           │
-│  ┌──────────────┐    │ Interactive selection:            │           │
-│  │ Select        │◀──│  "Available Mailbox Databases:"  │           │
-│  │ Database      │    │  [1] MDB01 (EX01, 52 GB)        │           │
-│  └──────┬───────┘    │  [2] MDB02 (EX02, 18 GB)        │           │
-│         │            └──────────────────────────────────┘           │
 │         ▼                                                            │
 │  ┌──────────────────────────────────────────────────────┐           │
 │  │ Set-User: populate AD fields per user                 │           │
@@ -119,7 +121,7 @@ Each mock user gets a fully populated Active Directory profile:
 ┌──────────────────────────────────────────────────────────────┐
 │  Mock User: mockuser042                                      │
 │  ┌──────────────────────────────────────────────────────┐   │
-│  │  Display Name:   Hiroshi Mueller                      │   │
+│  │  Display Name:   MockOrg Mueller Hiroshi               │   │
 │  │  First Name:     Hiroshi                              │   │
 │  │  Last Name:      Mueller                              │   │
 │  │  Initials:       HM                                   │   │
@@ -232,13 +234,16 @@ Randomized fields (22 departments, 30 job titles, 25 offices,
 .\Generate-ExchangeMockData.ps1
 ```
 
-The script will interactively ask you to select:
-1. **Mailbox Database** — which database to create user mailboxes in
-2. **SMTP Server** — which Exchange server to use for sending emails
-3. **EWS Server** — which Exchange server to use for contacts/calendar/folders
+The script will interactively ask you to configure:
+1. **User count** — how many mock users to create (default: 300)
+2. **OU name** — organizational unit for mock accounts (default: MockUsers)
+3. **Password mode** — random per user or same password for all
+4. **Mailbox Database** — which database to create user mailboxes in
+5. **SMTP Server** — which Exchange server to use for sending emails
+6. **EWS Server** — which Exchange server to use for contacts/calendar/folders
 
 Then it:
-4. Creates 300 users with mailboxes and full AD profiles in `OU=MockUsers`
+7. Creates users with mailboxes and full AD profiles
 5. Auto-configures throttling policies (user rate + transport delivery limits)
 6. Downloads/generates 100 sample attachment files
 7. Provisions default mailbox folders (Sent Items, Drafts, etc.)
@@ -252,7 +257,9 @@ Then it:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `-TargetSizeGB` | `100` | Target total mailbox database size |
-| `-UserCount` | `300` | Number of mock users to create |
+| `-UserCount` | interactive | Number of mock users (prompts if not set, default 300) |
+| `-MockUsersOU` | interactive | OU name for mock accounts (prompts if not set, default MockUsers) |
+| `-UserPassword` | interactive | Password for all users; if empty, prompts for mode (random/same) |
 | `-Database` | interactive | Mailbox database name for user creation |
 | `-SmtpServer` | interactive | Exchange server FQDN for SMTP sending |
 | `-EwsServer` | interactive | Exchange server FQDN for EWS operations |
@@ -261,7 +268,7 @@ Then it:
 | `-ChunkSize` | `100` | Work items per batch |
 | `-SkipToPhase` | auto | Resume from a specific phase (1-5) |
 | `-UserPrefix` | `mockuser` | Username prefix (e.g. mockuser001) |
-| `-MockUsersOU` | `MockUsers` | OU name for mock user accounts |
+| `-PasswordLength` | `12` | Length of random passwords |
 | `-InlineImagePercent` | `30` | % of emails with inline images |
 | `-Force` | off | Skip confirmation prompts |
 
@@ -271,11 +278,14 @@ Then it:
 # Default: 300 users, 100GB, 10 threads (interactive server/DB selection)
 .\Generate-ExchangeMockData.ps1
 
-# Smaller test: 50 users, 10GB
+# Smaller test: 50 users, 10GB (skip user count prompt)
 .\Generate-ExchangeMockData.ps1 -UserCount 50 -TargetSizeGB 10
 
-# Pre-select all infrastructure (no interactive prompts)
-.\Generate-ExchangeMockData.ps1 -Database "MDB01" -SmtpServer ex01.contoso.com -EwsServer ex01.contoso.com
+# Same password for all users (skip password prompt)
+.\Generate-ExchangeMockData.ps1 -UserPassword "P@ssw0rd123!"
+
+# Pre-select everything (no interactive prompts at all)
+.\Generate-ExchangeMockData.ps1 -UserCount 300 -MockUsersOU "MockUsers" -UserPassword "P@ssw0rd123!" -Database "MDB01" -SmtpServer ex01.contoso.com -EwsServer ex01.contoso.com
 
 # Resume from Phase 4 with more threads
 .\Generate-ExchangeMockData.ps1 -SkipToPhase 4 -Threads 20
@@ -313,7 +323,7 @@ The `users_credentials.csv` includes all profile data per user:
 | Number | 42 |
 | Alias | mockuser042 |
 | UPN | mockuser042@lab.contoso.com |
-| DisplayName | Hiroshi Mueller |
+| DisplayName | MockOrg Mueller Hiroshi |
 | Password | xK7#mPq2wR5! |
 | SamAccountName | mockuser042 |
 | FirstName | Hiroshi |
@@ -330,7 +340,7 @@ The `users_credentials.csv` includes all profile data per user:
 ## How It Works
 
 ### Phase 1 — User Creation + AD Profile Population
-Creates N mailbox-enabled users (`mockuser001` through `mockuser300`) in a dedicated OU. Interactively asks which mailbox database to use (shows all databases with server and size info). All AD and Exchange operations are pinned to the PDC Emulator to avoid replication lag. Names are drawn from 300 first names and 300 last names across 12 cultures (English, Russian, Spanish, Portuguese, French, German, Chinese, Japanese, Arabic, Indian, Korean, Italian, Nordic) and shuffled for unique combinations. After creating the mailbox, `Set-User` populates 12+ AD fields: Department, Title, Office, Company, City, Country, Street Address, Postal Code, Phone, Mobile, Initials, and Notes. Credentials and all profile data exported to CSV.
+Prompts for user count (default 300), OU name (default MockUsers), and password mode (random per user or same for all). Then interactively asks which mailbox database to use (shows all databases with server and size info). Creates N mailbox-enabled users (`mockuser001` through `mockuserN`) in the dedicated OU. All AD and Exchange operations are pinned to the PDC Emulator to avoid replication lag. Names are drawn from 300 first names and 300 last names across 12 cultures (English, Russian, Spanish, Portuguese, French, German, Chinese, Japanese, Arabic, Indian, Korean, Italian, Nordic) and shuffled for unique combinations. After creating the mailbox, `Set-User` populates 12+ AD fields: Department, Title, Office, Company, City, Country, Street Address, Postal Code, Phone, Mobile, Initials, and Notes. Credentials and all profile data exported to CSV.
 
 ### Phase 2 — SMTP + EWS + Throttling Configuration
 Enumerates Exchange servers and lets you choose separately which server to use for **SMTP** (email sending) and **EWS** (folder provisioning, contacts, calendar). Tests authenticated SMTP (SSL on port 465) with a real test message. Displays an infrastructure summary. Automatically:
