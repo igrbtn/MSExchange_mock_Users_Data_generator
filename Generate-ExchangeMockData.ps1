@@ -31,9 +31,10 @@
 param(
     [int]$SkipToPhase = 0,
     [int]$TargetSizeGB = 100,
-    [int]$UserCount = 300,
+    [int]$UserCount = 0,
     [string]$UserPrefix = "mockuser",
-    [string]$MockUsersOU = "MockUsers",
+    [string]$MockUsersOU = "",
+    [string]$UserPassword = "",
     [int]$PasswordLength = 12,
     [int]$Threads = 10,
     [int]$ChunkSize = 100,
@@ -617,7 +618,39 @@ $StartPhase = if ($SkipToPhase -gt 0) { $SkipToPhase } elseif ($State.phase -gt 
 #####################################################################
 
 if ($StartPhase -le 1) {
+    # ---- Interactive prompts (if not provided via parameters) ----
+
+    if ($UserCount -eq 0) {
+        Write-Host ""
+        $input = Read-Host "  How many users to create? [300]"
+        $UserCount = if ([string]::IsNullOrWhiteSpace($input)) { 300 } else { [int]$input }
+    }
+
+    if ([string]::IsNullOrEmpty($MockUsersOU)) {
+        $input = Read-Host "  OU name for mock users? [MockUsers]"
+        $MockUsersOU = if ([string]::IsNullOrWhiteSpace($input)) { "MockUsers" } else { $input.Trim() }
+    }
+
+    if ([string]::IsNullOrEmpty($UserPassword)) {
+        Write-Host ""
+        Write-Host "  Password mode:" -ForegroundColor Cyan
+        Write-Host "    [1] Generate unique random password per user (default)" -ForegroundColor White
+        Write-Host "    [2] Use same password for all users" -ForegroundColor White
+        Write-Host ""
+        $pwChoice = Read-Host "  Select (1 or 2) [1]"
+        if ($pwChoice -eq '2') {
+            $UserPassword = Read-Host "  Enter password for all users"
+            if ([string]::IsNullOrWhiteSpace($UserPassword)) {
+                Write-Host "  Empty password, falling back to random generation" -ForegroundColor Yellow
+                $UserPassword = ""
+            }
+        }
+    }
+
+    Write-Host ""
     Write-Host "=== PHASE 1: Creating $UserCount Mock Users ===" -ForegroundColor Yellow
+    Write-Host "    OU: $MockUsersOU" -ForegroundColor Gray
+    Write-Host "    Password: $(if ($UserPassword) { 'Same for all' } else { 'Random per user' })" -ForegroundColor Gray
     Write-Host ""
 
     # Load Exchange snap-in if needed
@@ -778,7 +811,7 @@ if ($StartPhase -le 1) {
             continue
         }
 
-        $password = New-RandomPassword -Length $PasswordLength
+        $password = if ($UserPassword) { $UserPassword } else { New-RandomPassword -Length $PasswordLength }
         $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
 
         try {
