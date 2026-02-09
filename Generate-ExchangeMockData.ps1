@@ -789,7 +789,18 @@ if ($StartPhase -le 1) {
         $existing = Get-Mailbox -Identity $alias -DomainController $DC -ErrorAction SilentlyContinue
         if ($existing) {
             $Skipped++
-            $password = "***existing***"
+
+            # Reset password so the user becomes usable for later phases
+            $password = if ($UserPassword) { $UserPassword } else { New-RandomPassword -Length $PasswordLength }
+            $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+            try {
+                Set-ADAccountPassword -Identity $alias -NewPassword $securePassword -Reset -Server $DC -ErrorAction Stop
+                Set-ADUser -Identity $alias -ChangePasswordAtLogon $false -Server $DC -ErrorAction SilentlyContinue
+            } catch {
+                Write-Log "Could not reset password for ${alias}: $_" "WARN"
+                $password = "***existing***"
+            }
+
             $CredsData += [PSCustomObject]@{
                 Number = $i; Alias = $alias; UPN = $upn
                 DisplayName = $displayName; Password = $password; SamAccountName = $alias
