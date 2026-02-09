@@ -788,9 +788,34 @@ if ($StartPhase -le 1) {
         # Check if already exists (pinned to DC)
         $existing = Get-Mailbox -Identity $alias -DomainController $DC -ErrorAction SilentlyContinue
         if ($existing) {
+            $existingDB = $existing.Database.Name
+            if ($existingDB -ne $MDB) {
+                # User is on a different database — remove and recreate on the selected one
+                Write-Log "  [$i/$UserCount] $alias is on '$existingDB', removing to recreate on '$MDB'..." "INFO"
+                try {
+                    Remove-Mailbox -Identity $alias -DomainController $DC -Permanent $true -Confirm:$false -ErrorAction Stop
+                    Start-Sleep -Seconds 2
+                    $existing = $null   # fall through to normal creation below
+                } catch {
+                    Write-Log "  [$i/$UserCount] Failed to remove $alias: $_" "ERROR"
+                    $password = "***FAILED***"
+                    $CredsData += [PSCustomObject]@{
+                        Number = $i; Alias = $alias; UPN = $upn
+                        DisplayName = $displayName; Password = $password; SamAccountName = $alias
+                        FirstName = $firstName; LastName = $lastName
+                        Department = $dept; Title = $title; Office = $office
+                        City = $city; Country = $country; Company = $company
+                        Phone = $phone; Mobile = $mobile
+                    }
+                    continue
+                }
+            }
+        }
+
+        if ($existing) {
+            # User exists and is already on the correct database — keep it, reset password
             $Skipped++
 
-            # Reset password so the user becomes usable for later phases
             $password = if ($UserPassword) { $UserPassword } else { New-RandomPassword -Length $PasswordLength }
             $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
             try {
