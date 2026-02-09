@@ -797,7 +797,7 @@ if ($StartPhase -le 1) {
                     Start-Sleep -Seconds 2
                     $existing = $null   # fall through to normal creation below
                 } catch {
-                    Write-Log "  [$i/$UserCount] Failed to remove $alias: $_" "ERROR"
+                    Write-Log "  [$i/$UserCount] Failed to remove ${alias}: $_" "ERROR"
                     $password = "***FAILED***"
                     $CredsData += [PSCustomObject]@{
                         Number = $i; Alias = $alias; UPN = $upn
