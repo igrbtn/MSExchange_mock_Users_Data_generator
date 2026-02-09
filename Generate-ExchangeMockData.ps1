@@ -98,6 +98,7 @@ function Get-State {
         forwardsSent = 0
         lastUserIndex = 0
         startTime = (Get-Date).ToString("o")
+        completed = $false
     }
 }
 
@@ -2654,7 +2655,11 @@ if ($StartPhase -le 5) {
     Write-Log "Report saved to: $ReportFile" "OK"
 
     $State.phase = 5
-    $State.completed = $true
+    if ($State.PSObject.Properties['completed']) {
+        $State.completed = $true
+    } else {
+        $State | Add-Member -NotePropertyName completed -NotePropertyValue $true
+    }
     Save-State $State
 }
 
